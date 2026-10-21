@@ -373,7 +373,7 @@ _MODELS: tuple[ModelSpec, ...] = (
         license="Apache-2.0",
         commercial="yes",
         memory_gb=4.0,
-        notes="16GB 机器的默认本地 LLM。",
+        notes="16–18 GB 机器推荐的本地 LLM。",
     ),
     ModelSpec(
         id="qwen3.5-9b-4bit",
@@ -385,7 +385,7 @@ _MODELS: tuple[ModelSpec, ...] = (
         license="Apache-2.0",
         commercial="yes",
         memory_gb=8.0,
-        notes="32GB 机器的默认本地 LLM。",
+        notes="24–48 GB 机器推荐的本地 LLM。",
     ),
     ModelSpec(
         id="qwen3.6-35b-a3b-4bit",
@@ -397,7 +397,7 @@ _MODELS: tuple[ModelSpec, ...] = (
         license="Apache-2.0",
         commercial="yes",
         memory_gb=24.0,
-        notes="64GB 以上机器的默认本地 LLM（MoE，每个 token 只激活约 3B 参数）。",
+        notes="64 GB 以上机器推荐的本地 LLM（MoE，每个 token 只激活约 3B 参数）。",
     ),
     # ---------------- 分析进程（扩展包） ----------------
     ModelSpec(
