@@ -1,10 +1,20 @@
 // 会议纪要：转写并区分发言人（本地分析扩展包，或在线 SenseAudio / ElevenLabs）→ LLM 纪要和待办
-import { useState } from "react";
+import { Sparkles } from "lucide-react";
+import { useMemo, useState } from "react";
 import {
-  Field, FileField, ModelSelect, Page, Section, TaskProgress, resolveModel,
+  Badge, Button, Card, DropZone, Field, ModelSelect, Page, Segmented, TaskProgress, Toggle,
+  avatarColor, resolveModel,
 } from "../components";
 import { useResource, useTask, type ModelInfo, type SystemInfo } from "../engine";
 import { MEDIA_FILTER } from "../files";
+
+interface Segment { start: number; end: number; text: string; speaker: string | null }
+
+function clock(t: number) {
+  const m = Math.floor(t / 60);
+  const s = Math.floor(t % 60);
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
 
 export function Meeting() {
   const system = useResource<SystemInfo>("/system");
@@ -21,71 +31,111 @@ export function Meeting() {
   const task = useTask();
   const result = task.task?.status === "succeeded" ? task.task.result : null;
   const summary = result?.summary;
+  const segments: Segment[] = result?.segments ?? [];
+  const speakerIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of segments) if (s.speaker && !map.has(s.speaker)) map.set(s.speaker, map.size);
+    return map;
+  }, [segments]);
 
   return (
-    <Page title="会议纪要" subtitle="上传录音或视频，自动转写、区分发言人，并生成纪要和待办。">
-      <Section>
-        <FileField label="录音或视频" value={path} onChange={setPath} filter={MEDIA_FILTER} />
-        <div className="grid">
+    <Page app="meeting">
+      <Card>
+        <DropZone value={path} onChange={setPath} filter={MEDIA_FILTER} label="选择会议录音或视频"
+          hint="支持常见音频和视频格式，点击选择或拖到这里" />
+        <div className="fields" style={{ marginTop: 16 }}>
           <Field label="转写模型">
             <ModelSelect models={models.data} kinds={["asr"]} value={model} onChange={setModel} />
           </Field>
           <Field label="语言">
-            <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-              <option value="zh">中文 / 中英混合</option>
-              <option value="en">英文</option>
-            </select>
+            <Segmented value={language} onChange={setLanguage} block options={[
+              { value: "zh", label: "中文 / 中英混合" }, { value: "en", label: "英文" },
+            ]} />
           </Field>
           <Field label="发言人数（可选）">
-            <input type="number" min={1} max={20} value={speakers}
+            <input type="number" min={1} max={20} value={speakers} placeholder="自动判断"
               onChange={(e) => setSpeakers(e.target.value)} />
           </Field>
         </div>
-        <label className="check">
-          <input type="checkbox" checked={diarize && canDiarize} disabled={!canDiarize}
-            onChange={(e) => setDiarize(e.target.checked)} />
-          区分发言人{!canDiarize && "（需要分析扩展包，或选择 SenseAudio / ElevenLabs 在线转写）"}
-        </label>
-        <button
-          className="primary"
-          disabled={!path || task.busy}
-          onClick={() =>
-            task.submit("meeting.summarize", {
+        <Toggle checked={diarize && canDiarize} disabled={!canDiarize} onChange={setDiarize}
+          label="区分发言人"
+          hint={canDiarize ? "转写稿和纪要里会标出每句话是谁说的"
+            : "需要安装分析扩展包，或者把转写模型换成 SenseAudio / ElevenLabs 在线转写"} />
+        <div className="btn-row" style={{ marginTop: 10 }}>
+          <Button variant="primary" size="lg" icon={Sparkles} loading={task.busy} disabled={!path}
+            onClick={() => task.submit("meeting.summarize", {
               audio_path: path, language, diarize: diarize && canDiarize,
               model: model || undefined,
               num_speakers: speakers ? Number(speakers) : undefined,
-            })
-          }
-        >
-          开始
-        </button>
+            })}>
+            转写并生成纪要
+          </Button>
+        </div>
         <TaskProgress task={task.task} error={task.submitError} />
-      </Section>
+      </Card>
+
       {summary && (
-        <Section title={summary.title}>
-          <p>{summary.summary}</p>
-          {summary.key_points?.length > 0 && (<><h3>要点</h3><ul>{summary.key_points.map((x: string) => <li key={x}>{x}</li>)}</ul></>)}
-          {summary.decisions?.length > 0 && (<><h3>决定</h3><ul>{summary.decisions.map((x: string) => <li key={x}>{x}</li>)}</ul></>)}
-          {summary.action_items?.length > 0 && (
-            <>
-              <h3>待办</h3>
-              <table>
-                <thead><tr><th>负责人</th><th>事项</th><th>截止</th></tr></thead>
-                <tbody>
-                  {summary.action_items.map((a: { owner: string; task: string; due: string }, i: number) => (
-                    <tr key={i}><td>{a.owner}</td><td>{a.task}</td><td>{a.due}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          )}
-        </Section>
+        <div className="cols-main" style={{ marginBottom: 16 }}>
+          <Card title={summary.title} sub="会议纪要">
+            <p style={{ lineHeight: 1.7 }}>{summary.summary}</p>
+            {summary.key_points?.length > 0 && (
+              <>
+                <div className="divider" />
+                <div className="section-title">要点</div>
+                <ul className="plain-list">{summary.key_points.map((x: string) => <li key={x}>{x}</li>)}</ul>
+              </>
+            )}
+            {summary.decisions?.length > 0 && (
+              <>
+                <div className="divider" />
+                <div className="section-title">决定</div>
+                <ul className="plain-list">{summary.decisions.map((x: string) => <li key={x}>{x}</li>)}</ul>
+              </>
+            )}
+            {summary.open_questions?.length > 0 && (
+              <>
+                <div className="divider" />
+                <div className="section-title">待讨论</div>
+                <ul className="plain-list">{summary.open_questions.map((x: string) => <li key={x}>{x}</li>)}</ul>
+              </>
+            )}
+          </Card>
+          <Card title="待办" sub={`${summary.action_items?.length ?? 0} 项`}>
+            {(summary.action_items ?? []).length === 0 && <p className="muted small">没有提到明确的待办。</p>}
+            {(summary.action_items ?? []).map((a: { owner: string; task: string; due: string }, i: number) => (
+              <div key={i} className="todo">
+                <span className="box" />
+                <div>
+                  <div>{a.task}</div>
+                  <div className="badges" style={{ marginTop: 4 }}>
+                    {a.owner && <Badge tone="accent">{a.owner}</Badge>}
+                    {a.due && <Badge>{a.due}</Badge>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </Card>
+        </div>
       )}
+
       {result && (
-        <Section title="转写稿">
-          <p className="small muted">文件：{result.files.txt} · {result.files.srt}</p>
-          <pre className="transcript">{result.transcript}</pre>
-        </Section>
+        <Card title="转写稿" sub={`${segments.length} 段 · 文件已保存：${result.files.txt}`}>
+          <div className="transcript-list">
+            {segments.map((s, i) => (
+              <div key={i} className="utter">
+                <time>{clock(s.start)}</time>
+                <div>
+                  {s.speaker && (
+                    <div className="speaker" style={{ color: avatarColor(speakerIndex.get(s.speaker) ?? 0) }}>
+                      {s.speaker}
+                    </div>
+                  )}
+                  <div>{s.text}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
     </Page>
   );

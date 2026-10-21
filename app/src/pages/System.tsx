@@ -1,125 +1,193 @@
 // 系统页面：任务中心、模型管理、设置、关于与许可
+import { Cloud, Cpu, ExternalLink, HardDrive, ListChecks, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
-  Field, LicenseBadge, Page, Player, Section, TaskProgress,
+  Badge, Button, Card, Empty, Field, LicenseBadge, Page, Player, Segmented, StatusLabel,
+  TaskProgress, Tile, Toggle,
 } from "../components";
-import { DefaultModels, OnlineApis } from "./Providers";
 import {
   useEngine, useEngineState, useResource, type ModelInfo, type SystemInfo, type Task,
 } from "../engine";
+import { TASK_KINDS } from "../nav";
+import { DefaultModels, OnlineApis } from "./Providers";
 
 const KIND_LABEL: Record<string, string> = {
   tts: "朗读 / 克隆", dialogue: "多人对话", voice_design: "声音设计", edit: "录音编辑",
-  sfx: "音效", asr: "转写", asr_stream: "实时转写", llm: "LLM", diarization: "说话人区分",
-  diarization_stream: "实时说话人区分", alignment: "时间戳", separation: "人声分离",
-  vad: "人声检测", music: "音乐",
+  sfx: "音效", music: "音乐", asr: "转写", asr_stream: "实时转写", llm: "本地 LLM",
+  diarization: "说话人区分", diarization_stream: "实时说话人区分", alignment: "时间戳",
+  separation: "人声分离", vad: "人声检测",
 };
+const KIND_ORDER = Object.keys(KIND_LABEL);
+const WORKER_LABEL: Record<string, string> = {
+  speech: "语音进程", llm: "LLM 进程", analysis: "分析进程（扩展包）", music: "音乐进程（扩展包）",
+};
+
+function ago(ts: number) {
+  const s = Date.now() / 1000 - ts;
+  if (s < 60) return "刚刚";
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
+  return new Date(ts * 1000).toLocaleString();
+}
+
+// ---------------- 任务中心 ----------------
+
+type Filter = "all" | "active" | "succeeded" | "failed";
 
 export function Tasks() {
   const { tasks } = useEngineState();
-  const list = useMemo(
-    () => Object.values(tasks).sort((a, b) => b.created_at - a.created_at),
-    [tasks],
-  );
+  const [filter, setFilter] = useState<Filter>("all");
+  const list = useMemo(() => Object.values(tasks)
+    .filter((t) => filter === "all"
+      || (filter === "active" && (t.status === "queued" || t.status === "running"))
+      || t.status === filter)
+    .sort((a, b) => b.created_at - a.created_at), [tasks, filter]);
   return (
-    <Page title="任务中心" subtitle="所有生成任务按顺序排队执行，一次只跑一个，避免内存不够。">
-      <Section>
-        {list.length === 0 && <p className="muted">还没有任务。</p>}
-        {list.map((t) => (
-          <TaskRow key={t.id} task={t} />
-        ))}
-      </Section>
+    <Page app="tasks" actions={
+      <Segmented value={filter} onChange={setFilter} options={[
+        { value: "all", label: "全部" }, { value: "active", label: "进行中" },
+        { value: "succeeded", label: "完成" }, { value: "failed", label: "失败" },
+      ]} />
+    }>
+      {list.length === 0 ? (
+        <Card><Empty icon={ListChecks} title="没有任务">生成任务会在这里排队执行。</Empty></Card>
+      ) : (
+        <Card flush>
+          <div className="list">{list.map((t) => <TaskRow key={t.id} task={t} />)}</div>
+        </Card>
+      )}
     </Page>
   );
 }
 
 function TaskRow({ task }: { task: Task }) {
+  const kind = TASK_KINDS[task.kind];
   const output: string | undefined = task.result?.output ?? task.result?.path;
+  const active = task.status === "queued" || task.status === "running";
   return (
-    <div className="task-row">
-      <div className="row between">
-        <b>{task.kind}</b>
-        <span className="small muted">{new Date(task.created_at * 1000).toLocaleString()}</span>
+    <div className="row-item" style={{ alignItems: "flex-start" }}>
+      <Tile app={kind?.app ?? "tasks"} size="md" />
+      <div className="grow">
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <span className="title">{kind?.label ?? task.kind}</span>
+          <span className="meta">{ago(task.created_at)}</span>
+          <span style={{ flex: 1 }} />
+          {!active && <StatusLabel status={task.status} />}
+        </div>
+        {(active || task.status === "failed") && <TaskProgress task={task} compact />}
+        {task.status === "succeeded" && output && (
+          <div style={{ marginTop: 10 }}><Player path={output} /></div>
+        )}
       </div>
-      <TaskProgress task={task} />
-      {task.status === "succeeded" && output && <Player path={output} />}
     </div>
   );
 }
 
+// ---------------- 模型管理 ----------------
+
 export function Models() {
   const models = useResource<ModelInfo[]>("/catalog");
   const system = useResource<SystemInfo>("/system");
+  const [scope, setScope] = useState<"all" | "local" | "cloud">("all");
   const groups = useMemo(() => {
     const out: Record<string, ModelInfo[]> = {};
-    for (const m of models.data ?? []) (out[m.kind] ??= []).push(m);
-    return out;
-  }, [models.data]);
+    for (const m of models.data ?? []) {
+      if (scope === "local" && m.worker === "cloud") continue;
+      if (scope === "cloud" && m.worker !== "cloud") continue;
+      (out[m.kind] ??= []).push(m);
+    }
+    return KIND_ORDER.filter((k) => out[k]).map((k) => [k, out[k]] as const);
+  }, [models.data, scope]);
+  const s = system.data;
+
   return (
-    <Page
-      title="模型管理"
-      subtitle={system.data
-        ? `${system.data.chip} · 内存 ${system.data.memory_total_gb} GB，可给模型用 ${system.data.memory_budget_gb} GB · 当前占用约 ${system.data.scheduler.used_gb} GB`
-        : undefined}
-    >
-      {system.data && (
-        <Section title="模型进程">
-          <table>
-            <thead><tr><th>进程</th><th>状态</th><th>已加载</th></tr></thead>
-            <tbody>
-              {system.data.scheduler.workers.map((w) => (
-                <tr key={w.name}>
-                  <td>{w.name}</td>
-                  <td>{!w.installed ? <span className="warn">{w.unavailable_reason || "未安装"}</span>
-                    : w.running ? "运行中" : "空闲（未启动）"}</td>
-                  <td className="small">{w.loaded.join("、") || "—"}</td>
-                </tr>
+    <Page app="models" actions={
+      <Segmented value={scope} onChange={setScope} options={[
+        { value: "all", label: "全部" }, { value: "local", label: "本地", icon: HardDrive },
+        { value: "cloud", label: "在线", icon: Cloud },
+      ]} />
+    }>
+      {s && (
+        <div className="cols" style={{ marginBottom: 16 }}>
+          <Card title="内存" sub={`${s.chip === "unknown" ? "Apple Silicon" : s.chip} · 共 ${s.memory_total_gb} GB`}>
+            <div className="machine-head">
+              <span className="muted">模型占用 / 可用</span>
+              <span><b>{s.scheduler.used_gb.toFixed(1)}</b> / {s.memory_budget_gb} GB</span>
+            </div>
+            <div className="gauge">
+              <div style={{ width: `${Math.min(100, (s.scheduler.used_gb / s.memory_budget_gb) * 100)}%` }} />
+            </div>
+            <p className="small muted" style={{ marginTop: 8 }}>
+              超出可用内存时，会自动关闭最久没用的模型进程。
+            </p>
+            <div className="divider" />
+            <div className="kv">
+              <div><span>系统和其他软件预留</span><b>{(s.memory_total_gb - s.memory_budget_gb).toFixed(1)} GB</b></div>
+              <div><span>默认 LLM</span><b>{s.llm_default}</b></div>
+              <div><span>ffmpeg</span><b>{s.ffmpeg ? "已就绪" : "未找到"}</b></div>
+            </div>
+          </Card>
+          <Card title="模型进程">
+            <div className="list">
+              {s.scheduler.workers.map((w) => (
+                <div key={w.name} className="row-item" style={{ padding: "7px 0" }}>
+                  <span className={`dot ${w.running ? "on" : ""}`} />
+                  <div className="grow">
+                    <div>{WORKER_LABEL[w.name] ?? w.name}</div>
+                    <div className="meta ellipsis">
+                      {!w.installed ? w.unavailable_reason || "未安装"
+                        : w.running ? `已加载：${w.loaded.join("、") || "—"}` : "未启动，用到时自动启动"}
+                    </div>
+                  </div>
+                  {!w.installed && <Badge tone="warning">未安装</Badge>}
+                </div>
               ))}
-            </tbody>
-          </table>
-        </Section>
+            </div>
+          </Card>
+        </div>
       )}
-      {Object.entries(groups).map(([kind, list]) => (
-        <Section key={kind} title={KIND_LABEL[kind] ?? kind}>
-          <table>
-            <thead>
-              <tr><th>模型</th><th>许可证</th><th>内存</th><th>说明</th></tr>
-            </thead>
-            <tbody>
-              {list.map((m) => (
-                <tr key={m.id} className={m.allowed ? "" : "disabled"}>
-                  <td>
+
+      {groups.map(([kind, list]) => (
+        <Card key={kind} flush title={KIND_LABEL[kind] ?? kind} sub={`${list.length} 个`}>
+          <div style={{ marginTop: 12 }}>
+            {list.map((m) => (
+              <div key={m.id} className={`model-row ${m.allowed ? "" : "off"}`}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="name">
                     <a href={m.url} target="_blank" rel="noreferrer">{m.name}</a>
-                    {m.default && <span className="badge">默认</span>}
-                  </td>
-                  <td>
-                    <LicenseBadge model={m} /> <span className="small">{m.license}</span>
-                    {m.license_note && <div className="small muted">{m.license_note}</div>}
-                  </td>
-                  <td className="small">
-                    {m.worker === "cloud"
-                      ? "在线"
-                      : `${m.memory_gb} GB${m.measured ? "（实测）" : "（估算）"}`}
-                  </td>
-                  <td className="small">
-                    {m.notes}
-                    {m.needs_conversion && <div className="warn">需要用 mlx-speech 脚本自行转换权重</div>}
+                    {m.default && <Badge tone="accent">默认</Badge>}
+                    {m.worker === "cloud" ? <Badge><Cloud size={11} />在线</Badge>
+                      : <Badge><HardDrive size={11} />本地</Badge>}
+                    <LicenseBadge model={m} />
                     {!m.worker_installed && (
-                      <div className="warn">
-                        {m.worker === "cloud" ? "未填写 API Key（在设置里填写）" : "所在进程未安装"}
+                      <Badge tone="warning">{m.worker === "cloud" ? "未填 API Key" : "扩展包未安装"}</Badge>
+                    )}
+                    {m.needs_conversion && <Badge tone="warning">需自行转换权重</Badge>}
+                  </div>
+                  <div className="desc">
+                    {m.notes}
+                    {m.license_note && (
+                      <div className="faint">
+                        {m.license_note.startsWith(m.license) ? m.license_note : `${m.license}：${m.license_note}`}
                       </div>
                     )}
-                    {!m.allowed && <div className="warn">商用版不可用</div>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Section>
+                  </div>
+                </div>
+                <div className="mem">
+                  {m.worker === "cloud" ? <><b>—</b>不占内存</> : (
+                    <><b>{m.memory_gb} GB</b>{m.measured ? "实测" : "估算"}</>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
       ))}
     </Page>
   );
 }
+
+// ---------------- 设置 ----------------
 
 interface SettingsShape {
   edition: "personal" | "commercial";
@@ -133,10 +201,13 @@ interface SettingsShape {
   export_loudness_lufs: number;
 }
 
+type Tab = "defaults" | "online" | "llm" | "general" | "edition";
+
 export function Settings() {
   const engine = useEngine();
   const remote = useResource<{ settings: SettingsShape; secrets: Record<string, boolean> }>("/settings");
   const models = useResource<ModelInfo[]>("/catalog");
+  const [tab, setTab] = useState<Tab>("defaults");
   const [s, setS] = useState<SettingsShape | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [hfToken, setHfToken] = useState("");
@@ -145,7 +216,7 @@ export function Settings() {
   useEffect(() => {
     if (remote.data) setS(remote.data.settings);
   }, [remote.data]);
-  if (!s) return <Page title="设置"><p className="muted">加载中…</p></Page>;
+  if (!s) return <Page app="settings"><p className="muted">读取中…</p></Page>;
 
   const save = async () => {
     try {
@@ -154,162 +225,196 @@ export function Settings() {
       if (hfToken) await engine.put("/secrets/hf_token", { value: hfToken });
       setApiKey("");
       setHfToken("");
-      setMsg("已保存。模型下载源的修改在重启引擎后生效。");
+      setMsg("已保存");
+      setTimeout(() => setMsg(null), 2500);
       remote.reload();
+      models.reload();
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err));
     }
   };
   const llms = (models.data ?? []).filter((m) => m.kind === "llm");
+  const saveBar = (
+    <div className="btn-row" style={{ marginTop: 4 }}>
+      <Button variant="primary" icon={Save} onClick={save}>保存</Button>
+      {msg && <span className="small muted">{msg}</span>}
+    </div>
+  );
 
   return (
-    <Page title="设置">
-      <DefaultModels
-        overrides={s.model_overrides}
-        onChange={(next) => setS({ ...s, model_overrides: next })}
-      />
-      <div className="row save-row">
-        <button className="primary" onClick={save}>保存默认模型</button>
+    <Page app="settings" subtitle="模型、在线服务和生成选项" narrow>
+      <div className="tabs">
+        <Segmented value={tab} onChange={setTab} block options={[
+          { value: "defaults", label: "默认模型" }, { value: "online", label: "在线 API" },
+          { value: "llm", label: "LLM" }, { value: "general", label: "下载与生成" },
+          { value: "edition", label: "版本" },
+        ]} />
       </div>
-      <OnlineApis />
-      <Section title="版本">
-        <label className="check">
-          <input type="radio" checked={s.edition === "personal"}
-            onChange={() => setS({ ...s, edition: "personal" })} />
-          个人版（默认）：可以使用所有模型，包括非商用许可的模型
-        </label>
-        <label className="check">
-          <input type="radio" checked={s.edition === "commercial"}
-            onChange={() => setS({ ...s, edition: "commercial" })} />
-          商用版：自动排除非商用许可的模型（如 Fish S2 Pro、Breeze TTS 2）
-        </label>
-      </Section>
 
-      <Section title="LLM">
-        <label className="check">
-          <input type="radio" checked={s.llm.provider === "local"}
-            onChange={() => setS({ ...s, llm: { ...s.llm, provider: "local" } })} />
-          本地模型（mlx-lm，完全离线）
-        </label>
-        <label className="check">
-          <input type="radio" checked={s.llm.provider === "cloud"}
-            onChange={() => setS({ ...s, llm: { ...s.llm, provider: "cloud" } })} />
-          云端接口（任意 OpenAI 兼容服务）
-        </label>
-        {s.llm.provider === "local" ? (
-          <Field label="本地模型">
-            <select value={s.llm.local_model ?? ""}
-              onChange={(e) => setS({ ...s, llm: { ...s.llm, local_model: e.target.value || null } })}>
-              <option value="">按内存自动选择</option>
-              {llms.map((m) => (
-                <option key={m.id} value={m.id}>{m.name} · 约 {m.memory_gb} GB</option>
-              ))}
-            </select>
-          </Field>
-        ) : (
-          <div className="grid">
-            <Field label="接口地址" hint="例如 https://api.deepseek.com/v1">
-              <input value={s.llm.cloud_base_url}
-                onChange={(e) => setS({ ...s, llm: { ...s.llm, cloud_base_url: e.target.value } })} />
-            </Field>
-            <Field label="模型名">
-              <input value={s.llm.cloud_model}
-                onChange={(e) => setS({ ...s, llm: { ...s.llm, cloud_model: e.target.value } })} />
-            </Field>
-            <Field label="API Key"
-              hint={remote.data?.secrets.llm_api_key ? "已保存在系统钥匙串，留空不修改" : "保存在系统钥匙串"}>
-              <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-            </Field>
-          </div>
-        )}
-      </Section>
+      {tab === "defaults" && (
+        <>
+          <DefaultModels overrides={s.model_overrides}
+            onChange={(next) => setS({ ...s, model_overrides: next })} />
+          {saveBar}
+        </>
+      )}
 
-      <Section title="模型下载">
-        <Field label="下载源" hint="国内访问 Hugging Face 不稳定时可以填镜像站，例如 https://hf-mirror.com">
-          <input value={s.hf_endpoint} onChange={(e) => setS({ ...s, hf_endpoint: e.target.value })} />
-        </Field>
-        <Field label="Hugging Face 访问令牌"
-          hint={remote.data?.secrets.hf_token ? "已保存，留空不修改" : "说话人区分模型需要先在其页面同意使用条款，并填写令牌"}>
-          <input type="password" value={hfToken} onChange={(e) => setHfToken(e.target.value)} />
-        </Field>
-      </Section>
+      {tab === "online" && <OnlineApis />}
 
-      <Section title="生成和导出">
-        <label className="check">
-          <input type="checkbox" checked={s.qa_enabled}
-            onChange={(e) => setS({ ...s, qa_enabled: e.target.checked })} />
-          默认开启质检回听
-        </label>
-        <div className="grid">
-          <Field label="质检不过时最多重做几次">
-            <input type="number" min={0} max={5} value={s.qa_max_retries}
-              onChange={(e) => setS({ ...s, qa_max_retries: Number(e.target.value) })} />
-          </Field>
-          <Field label="导出响度（LUFS）" hint="播客常用 -16，有声书常用 -18 到 -20">
-            <input type="number" step={1} value={s.export_loudness_lufs}
-              onChange={(e) => setS({ ...s, export_loudness_lufs: Number(e.target.value) })} />
-          </Field>
-          <Field label="模型进程空闲多久后关闭（秒）">
-            <input type="number" min={60} value={s.idle_timeout_s}
-              onChange={(e) => setS({ ...s, idle_timeout_s: Number(e.target.value) })} />
-          </Field>
-        </div>
-      </Section>
-      <div className="row">
-        <button className="primary" onClick={save}>保存设置</button>
-        {msg && <span className="small">{msg}</span>}
-      </div>
+      {tab === "llm" && (
+        <>
+          <Card title="写剧本、纪要、歌词用的 LLM">
+            <Field label="来源">
+              <Segmented value={s.llm.provider} block
+                onChange={(provider) => setS({ ...s, llm: { ...s.llm, provider } })}
+                options={[
+                  { value: "local", label: "本地模型（离线）", icon: HardDrive },
+                  { value: "cloud", label: "云端接口", icon: Cloud },
+                ]} />
+            </Field>
+            {s.llm.provider === "local" ? (
+              <Field label="本地模型" hint="通过 mlx-lm 在本机运行，第一次使用时下载">
+                <select value={s.llm.local_model ?? ""}
+                  onChange={(e) => setS({ ...s, llm: { ...s.llm, local_model: e.target.value || null } })}>
+                  <option value="">按内存自动选择</option>
+                  {llms.map((m) => <option key={m.id} value={m.id}>{m.name} · 约 {m.memory_gb} GB</option>)}
+                </select>
+              </Field>
+            ) : (
+              <>
+                <Field label="接口地址" hint="任意 OpenAI 兼容的对话接口，例如 https://api.deepseek.com/v1">
+                  <input value={s.llm.cloud_base_url}
+                    onChange={(e) => setS({ ...s, llm: { ...s.llm, cloud_base_url: e.target.value } })} />
+                </Field>
+                <div className="fields">
+                  <Field label="模型名">
+                    <input value={s.llm.cloud_model}
+                      onChange={(e) => setS({ ...s, llm: { ...s.llm, cloud_model: e.target.value } })} />
+                  </Field>
+                  <Field label="API Key"
+                    hint={remote.data?.secrets.llm_api_key ? "已保存在钥匙串，留空不修改" : "保存在系统钥匙串"}>
+                    <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+                  </Field>
+                </div>
+              </>
+            )}
+          </Card>
+          {saveBar}
+        </>
+      )}
+
+      {tab === "general" && (
+        <>
+          <Card title="模型下载">
+            <Field label="下载源" hint="国内访问 Hugging Face 不稳定时填镜像站，例如 https://hf-mirror.com。修改后需要重启 App。">
+              <input value={s.hf_endpoint} placeholder="留空使用官方地址"
+                onChange={(e) => setS({ ...s, hf_endpoint: e.target.value })} />
+            </Field>
+            <Field label="Hugging Face 访问令牌"
+              hint={remote.data?.secrets.hf_token ? "已保存，留空不修改"
+                : "本地说话人区分模型需要先在其页面同意使用条款，再填写令牌"}>
+              <input type="password" value={hfToken} onChange={(e) => setHfToken(e.target.value)} />
+            </Field>
+          </Card>
+          <Card title="生成和导出">
+            <Toggle checked={s.qa_enabled} onChange={(qa_enabled) => setS({ ...s, qa_enabled })}
+              label="默认开启质检回听" hint="生成后转写回文字比对，不合格的句子自动重做" />
+            <div className="divider" />
+            <div className="fields">
+              <Field label="质检不过时最多重做">
+                <Segmented value={s.qa_max_retries} block
+                  onChange={(qa_max_retries) => setS({ ...s, qa_max_retries })}
+                  options={[0, 1, 2, 3].map((n) => ({ value: n, label: `${n} 次` }))} />
+              </Field>
+              <Field label="导出响度（LUFS）" hint="播客常用 -16，有声书常用 -18 到 -20">
+                <input type="number" step={1} value={s.export_loudness_lufs}
+                  onChange={(e) => setS({ ...s, export_loudness_lufs: Number(e.target.value) })} />
+              </Field>
+              <Field label="模型进程空闲多久后关闭（秒）">
+                <input type="number" min={60} value={s.idle_timeout_s}
+                  onChange={(e) => setS({ ...s, idle_timeout_s: Number(e.target.value) })} />
+              </Field>
+            </div>
+          </Card>
+          {saveBar}
+        </>
+      )}
+
+      {tab === "edition" && (
+        <>
+          <Card title="版本">
+            <div className="choices" style={{ gridTemplateColumns: "1fr 1fr" }}>
+              <button className={`choice ${s.edition === "personal" ? "on" : ""}`}
+                onClick={() => setS({ ...s, edition: "personal" })}>
+                <b>个人版</b>
+                <small>可以使用所有模型，包括 Fish S2 Pro、Breeze TTS 2 等非商用许可的模型。</small>
+              </button>
+              <button className={`choice ${s.edition === "commercial" ? "on" : ""}`}
+                onClick={() => setS({ ...s, edition: "commercial" })}>
+                <b>商用版</b>
+                <small>自动排除非商用许可的模型，并切换到可商用的默认模型。</small>
+              </button>
+            </div>
+          </Card>
+          {saveBar}
+        </>
+      )}
     </Page>
   );
 }
 
+// ---------------- 关于 ----------------
+
 const FRAMEWORKS = [
-  ["Tauri", "MIT / Apache-2.0"], ["React", "MIT"], ["Vite", "MIT"], ["MLX", "MIT"],
-  ["mlx-speech", "MIT"], ["mlx-lm", "MIT"], ["FastAPI", "MIT"], ["Uvicorn", "BSD-3-Clause"],
-  ["websockets", "BSD-3-Clause"], ["msgpack", "Apache-2.0"],
+  ["Tauri", "MIT / Apache-2.0"], ["React", "MIT"], ["Vite", "MIT"], ["Lucide 图标", "ISC"],
+  ["MLX", "MIT"], ["mlx-speech", "MIT"], ["mlx-lm", "MIT"], ["FastAPI", "MIT"],
+  ["Uvicorn", "BSD-3-Clause"], ["websockets", "BSD-3-Clause"], ["msgpack", "Apache-2.0"],
   ["PyTorch", "BSD-3-Clause"], ["pyannote.audio", "MIT"], ["Demucs", "MIT"],
   ["ACE-Step 1.5", "MIT"], ["FFmpeg（LGPL 构建）", "LGPL-2.1+"],
 ];
 
 export function About() {
   const models = useResource<ModelInfo[]>("/catalog");
-  const fish = (models.data ?? []).some((m) => m.license.startsWith("Fish Audio"));
+  const local = (models.data ?? []).filter((m) => m.worker !== "cloud");
+  const fish = local.some((m) => m.license.startsWith("Fish Audio"));
   return (
-    <Page title="关于与许可" subtitle="声境使用的开源框架和模型，以及它们的许可要求。">
-      <Section title="必要声明">
-        <ul>
-          <li>声境本身的代码使用 MIT 许可证（Copyright © 2026 baiyakun）。模型权重和依赖库按各自许可证使用。</li>
+    <Page app="about" subtitle="声境使用的开源框架和模型，以及它们的许可要求" narrow>
+      <Card title="声明">
+        <ul className="plain-list">
+          <li>声境的代码使用 MIT 许可证（Copyright © 2026 baiyakun），仅供个人研究使用。</li>
           {fish && (
-            <li>
-              Built with Fish Audio。Fish S2 Pro 和 Drama 3 依据 Fish Audio Research License
-              使用（Copyright © 39 AI, INC.），仅限研究和非商用。
-            </li>
+            <li>Built with Fish Audio。Fish S2 Pro 和 Drama 3 依据 Fish Audio Research License 使用
+              （Copyright © 39 AI, INC.），仅限研究和非商用。</li>
           )}
           <li>pyannote speaker-diarization-community-1、NVIDIA Streaming Sortformer v2 依据 CC-BY-4.0 使用。</li>
           <li>生成的语音、音乐和音效均为 AI 生成内容，发布时请按规定标注。</li>
         </ul>
-      </Section>
-      <Section title="框架">
-        <table>
-          <tbody>
-            {FRAMEWORKS.map(([name, lic]) => (
-              <tr key={name}><td>{name}</td><td className="small">{lic}</td></tr>
-            ))}
-          </tbody>
-        </table>
-      </Section>
-      <Section title="模型">
-        <table>
-          <tbody>
-            {(models.data ?? []).map((m) => (
-              <tr key={m.id}>
-                <td><a href={m.url} target="_blank" rel="noreferrer">{m.name}</a></td>
-                <td><LicenseBadge model={m} /> <span className="small">{m.license}</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Section>
+      </Card>
+      <Card flush title="框架">
+        <div style={{ marginTop: 8 }}>
+          {FRAMEWORKS.map(([name, lic]) => (
+            <div key={name} className="model-row" style={{ padding: "9px 18px" }}>
+              <span>{name}</span><span className="mem">{lic}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card flush title="本地模型">
+        <div style={{ marginTop: 8 }}>
+          {local.map((m) => (
+            <div key={m.id} className="model-row" style={{ padding: "9px 18px" }}>
+              <span className="name">
+                <a href={m.url} target="_blank" rel="noreferrer">{m.name} <ExternalLink size={11} /></a>
+                <LicenseBadge model={m} />
+              </span>
+              <span className="mem" style={{ whiteSpace: "nowrap" }}>{m.license}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <p className="small faint" style={{ textAlign: "center" }}>
+        <Cpu size={12} style={{ verticalAlign: -2 }} /> 声境 0.1.0
+      </p>
     </Page>
   );
 }

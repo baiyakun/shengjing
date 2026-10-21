@@ -75,7 +75,7 @@ Mac 上模型和系统共用一块内存，关闭进程是唯一能保证内存�
 
 ```
 app/                 macOS App
-  src/               React 界面（9 个应用页面 + 系统页面）
+  src/               React 界面（开始页、9 个应用页面、系统页面；styles.css 是整套设计规范，支持浅色和深色）
   src-tauri/         Rust 外壳：启动和守护主引擎、文件对话框、麦克风权限
 engine/              主引擎（Python）
   src/shengjing_engine/
@@ -166,9 +166,11 @@ App 内置独立的 Python 运行环境；分析包和音乐包作为扩展包�
 | --- | --- | --- | --- |
 | Tauri 2 | macOS App 外壳 | MIT 或 Apache-2.0 | https://github.com/tauri-apps/tauri |
 | tauri-plugin-dialog | 文件选择对话框 | MIT 或 Apache-2.0 | https://github.com/tauri-apps/plugins-workspace |
+| tauri-plugin-opener | 用系统浏览器打开链接、在访达中显示文件 | MIT 或 Apache-2.0 | https://github.com/tauri-apps/plugins-workspace |
 | serde / serde_json | Rust 序列化 | MIT 或 Apache-2.0 | https://github.com/serde-rs/serde |
 | React 19 | 界面 | MIT | https://github.com/facebook/react |
 | Vite | 前端构建 | MIT | https://github.com/vitejs/vite |
+| Lucide（lucide-react） | 界面图标 | ISC（部分图标源自 Feather，MIT） | https://github.com/lucide-icons/lucide |
 | TypeScript | 前端语言 | Apache-2.0 | https://github.com/microsoft/TypeScript |
 
 ### 引擎与模型运行框架

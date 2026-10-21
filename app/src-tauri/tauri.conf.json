@@ -16,7 +16,14 @@
         "width": 1280,
         "height": 820,
         "minWidth": 980,
-        "minHeight": 640
+        "minHeight": 640,
+        "label": "main",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 16
+        }
       }
     ],
     "security": {
@@ -25,7 +32,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "category": "Music",
     "shortDescription": "本地 AI 有声内容工作室",
     "icon": [

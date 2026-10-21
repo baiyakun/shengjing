@@ -19,6 +19,7 @@ fn restart_engine(state: tauri::State<'_, EngineSupervisor>) {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let config = LaunchConfig::resolve(app.handle())?;
             let supervisor = EngineSupervisor::new(config);

@@ -1,10 +1,16 @@
 // 音效库：一句需求 → （可选）LLM 扩写成多条具体描述 → 批量生成
+import { Sparkles, Waves } from "lucide-react";
 import { useState } from "react";
-import { Field, ModelSelect, Page, Player, Section, TaskProgress } from "../components";
+import {
+  Button, Card, Empty, Field, ModelSelect, Page, Player, Segmented, TaskProgress, Toggle,
+} from "../components";
 import { useResource, useTask, type ModelInfo } from "../engine";
 
+const IDEAS = ["雨夜，老旧木门被风吹开", "清晨公园，鸟鸣和远处的狗叫", "科幻飞船引擎低沉轰鸣",
+  "咖啡馆里杯碟碰撞和人声", "雪地里缓慢的脚步声", "篝火噼啪作响"];
+
 export function Sfx() {
-  const [description, setDescription] = useState("雨夜，老旧木门被风吹开");
+  const [description, setDescription] = useState("");
   const [duration, setDuration] = useState(5);
   const [variants, setVariants] = useState(3);
   const [expand, setExpand] = useState(true);
@@ -15,47 +21,54 @@ export function Sfx() {
     task.task?.status === "succeeded" ? task.task.result.items : [];
 
   return (
-    <Page title="音效库" subtitle="用文字生成环境声和动作音效。本地用 MOSS-SoundEffect，也可以用在线服务。">
-      <Section>
-        <Field label="模型">
-          <ModelSelect models={models.data} kinds={["sfx"]} value={model} onChange={setModel} />
+    <Page app="sfx">
+      <Card>
+        <Field label="想要什么声音">
+          <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)}
+            placeholder="描述声源、环境和节奏，例如：空旷的走廊里，木门缓慢打开，铰链吱呀作响" />
         </Field>
-        <Field label="想要的音效">
-          <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
-        </Field>
-        <div className="grid">
-          <Field label="时长（秒）" hint="大致时长，不是精确值">
-            <input type="number" min={1} max={30} value={duration}
+        <div className="chips" style={{ margin: "-6px 0 16px" }}>
+          {IDEAS.map((s) => (
+            <button key={s} className={`chip ${s === description ? "on" : ""}`} onClick={() => setDescription(s)}>{s}</button>
+          ))}
+        </div>
+        <div className="fields">
+          <Field label="模型">
+            <ModelSelect models={models.data} kinds={["sfx"]} value={model} onChange={setModel} />
+          </Field>
+          <Field label={`时长：约 ${duration} 秒`}>
+            <input type="range" min={1} max={30} value={duration}
               onChange={(e) => setDuration(Number(e.target.value))} />
           </Field>
           <Field label="生成几条">
-            <input type="number" min={1} max={8} value={variants}
-              onChange={(e) => setVariants(Number(e.target.value))} />
+            <Segmented value={variants} onChange={setVariants} block
+              options={[1, 2, 3, 4].map((n) => ({ value: n, label: String(n) }))} />
           </Field>
         </div>
-        <label className="check">
-          <input type="checkbox" checked={expand} onChange={(e) => setExpand(e.target.checked)} />
-          让 LLM 把需求扩写成多条不同的具体描述
-        </label>
-        <button
-          className="primary"
-          disabled={!description.trim() || task.busy}
-          onClick={() =>
-            task.submit("sfx.generate", {
+        <Toggle checked={expand} onChange={setExpand} label="让 LLM 扩写描述"
+          hint="把一句需求扩写成几条不同的具体描述，结果更多样（需要 LLM）" />
+        <div className="btn-row" style={{ marginTop: 10 }}>
+          <Button variant="primary" size="lg" icon={Sparkles} loading={task.busy}
+            disabled={!description.trim()}
+            onClick={() => task.submit("sfx.generate", {
               description, duration, variants, expand, model: model || undefined,
-            })
-          }
-        >
-          生成
-        </button>
+            })}>
+            生成音效
+          </Button>
+        </div>
         <TaskProgress task={task.task} error={task.submitError} />
-      </Section>
-      {items.length > 0 && (
-        <Section title="结果">
-          {items.map((it) => (
-            <Player key={it.path} path={it.path} label={it.description} />
+      </Card>
+
+      {items.length > 0 ? (
+        <div className="result-grid">
+          {items.map((it, i) => (
+            <Card key={it.path} title={`第 ${i + 1} 条`} sub={it.description}>
+              <Player path={it.path} />
+            </Card>
           ))}
-        </Section>
+        </div>
+      ) : (
+        !task.task && <Empty icon={Waves} title="还没有音效">从上面的例子开始试试。</Empty>
       )}
     </Page>
   );

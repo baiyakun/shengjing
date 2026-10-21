@@ -1,15 +1,25 @@
 // 录音后期：Step-Audio-EditX 改情绪、风格、语速，降噪，去静音，加副语言
+import { Eraser, Gauge, Laugh, Palette, Scissors, Smile, Sparkles, type LucideIcon } from "lucide-react";
 import { useState } from "react";
-import { Field, FileField, Page, Player, Section, TaskProgress } from "../components";
+import { Button, Card, DropZone, Field, Page, Player, TaskProgress } from "../components";
 import { useTask } from "../engine";
 
-const TYPES = [
-  { value: "emotion", label: "改情绪", hint: "例如 happy、sad、angry" },
-  { value: "style", label: "改风格", hint: "例如 whisper、serious" },
-  { value: "speed", label: "改语速", hint: "例如 faster、slower" },
-  { value: "denoise", label: "降噪", hint: "" },
-  { value: "vad", label: "去掉静音", hint: "" },
-  { value: "paralinguistic", label: "加笑声、叹气等", hint: "在目标文字里标出位置" },
+// 预设的值是 Step-Audio-EditX 认的英文写法，按钮上显示中文
+type Preset = [value: string, label: string];
+
+const TYPES: { value: string; label: string; desc: string; icon: LucideIcon; presets?: Preset[] }[] = [
+  { value: "emotion", label: "改情绪", desc: "开心、难过、生气…", icon: Smile,
+    presets: [["happy", "开心"], ["sad", "难过"], ["angry", "生气"], ["surprised", "惊讶"],
+      ["fearful", "害怕"], ["calm", "平静"]] },
+  { value: "style", label: "改风格", desc: "耳语、严肃、撒娇…", icon: Palette,
+    presets: [["whisper", "耳语"], ["serious", "严肃"], ["gentle", "温柔"],
+      ["exaggerated", "夸张"], ["childlike", "孩子气"]] },
+  { value: "speed", label: "改语速", desc: "更快或更慢", icon: Gauge,
+    presets: [["faster", "快一点"], ["slower", "慢一点"], ["more faster", "快很多"],
+      ["more slower", "慢很多"]] },
+  { value: "denoise", label: "降噪", desc: "去掉背景噪音", icon: Eraser },
+  { value: "vad", label: "去掉静音", desc: "删除过长的停顿", icon: Scissors },
+  { value: "paralinguistic", label: "加笑声叹气", desc: "在指定位置加入", icon: Laugh },
 ];
 
 export function Edit() {
@@ -20,58 +30,78 @@ export function Edit() {
   const [target, setTarget] = useState("");
   const task = useTask();
   const current = TYPES.find((t) => t.value === type)!;
-  const needsInfo = ["emotion", "style", "speed"].includes(type);
+  const needsInfo = Boolean(current.presets);
   const result = task.task?.status === "succeeded" ? task.task.result : null;
 
   return (
-    <Page title="录音后期" subtitle="修改已有的口播录音。Phase 3 会加上按时间轴找口误和单句替换。">
-      <Section>
-        <FileField label="录音" value={path} onChange={setPath} />
-        <Field label="录音的文字稿" hint="留空会先自动转写">
-          <textarea rows={2} value={transcript} onChange={(e) => setTranscript(e.target.value)} />
-        </Field>
-        <div className="grid">
-          <Field label="编辑类型">
-            <select value={type} onChange={(e) => setType(e.target.value)}>
-              {TYPES.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
+    <Page app="edit" narrow>
+      <Card step={1} title="选择录音">
+        <DropZone value={path} onChange={setPath} />
+        <div style={{ marginTop: 14 }}>
+          <Field label="录音的文字稿（可选）" hint="留空会先自动转写">
+            <textarea rows={2} value={transcript} onChange={(e) => setTranscript(e.target.value)} />
           </Field>
-          {needsInfo && (
-            <Field label="目标" hint={current.hint}>
+        </div>
+      </Card>
+
+      <Card step={2} title="想怎么改">
+        <div className="choices">
+          {TYPES.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button key={t.value} className={`choice ${t.value === type ? "on" : ""}`}
+                onClick={() => { setType(t.value); setInfo(t.presets?.[0][0] ?? ""); }}>
+                <Icon size={18} color="var(--accent)" />
+                <b>{t.label}</b>
+                <small>{t.desc}</small>
+              </button>
+            );
+          })}
+        </div>
+        {needsInfo && (
+          <div style={{ marginTop: 16 }}>
+            <div className="chips" style={{ marginBottom: 14 }}>
+              {current.presets!.map(([value, label]) => (
+                <button key={value} className={`chip ${value === info ? "on" : ""}`}
+                  onClick={() => setInfo(value)}>{label}</button>
+              ))}
+            </div>
+            <Field label="目标" hint="选上面的预设，或者自己填英文描述">
               <input value={info} onChange={(e) => setInfo(e.target.value)} />
             </Field>
-          )}
-        </div>
-        {type === "paralinguistic" && (
-          <Field label="目标文字" hint={current.hint}>
-            <textarea rows={2} value={target} onChange={(e) => setTarget(e.target.value)} />
-          </Field>
+          </div>
         )}
-        <button
-          className="primary"
-          disabled={!path || task.busy}
-          onClick={() =>
-            task.submit("audio.edit", {
+        {type === "paralinguistic" && (
+          <div style={{ marginTop: 16 }}>
+            <Field label="目标文字" hint="在原文里标出要加入声音的位置，例如：我真的[Laughter]没想到">
+              <textarea rows={2} value={target} onChange={(e) => setTarget(e.target.value)} />
+            </Field>
+          </div>
+        )}
+        <div className="btn-row" style={{ marginTop: 16 }}>
+          <Button variant="primary" size="lg" icon={Sparkles} loading={task.busy}
+            disabled={!path || (needsInfo && !info) || (type === "paralinguistic" && !target)}
+            onClick={() => task.submit("audio.edit", {
               audio_path: path,
               transcript: transcript || undefined,
               edit_type: type,
               edit_info: needsInfo ? info : undefined,
               target_text: type === "paralinguistic" ? target : undefined,
-            })
-          }
-        >
-          开始编辑
-        </button>
+            })}>
+            开始处理
+          </Button>
+        </div>
         <TaskProgress task={task.task} error={task.submitError} />
-        {result && (
-          <div className="result">
+      </Card>
+
+      {result && (
+        <Card step={3} done title="前后对比">
+          <div className="stack">
             <Player path={result.input} label="原录音" />
-            <Player path={result.path} label="编辑后" />
+            <Player path={result.path} label={`处理后 · ${current.label}`} />
           </div>
-        )}
-      </Section>
+        </Card>
+      )}
     </Page>
   );
 }
