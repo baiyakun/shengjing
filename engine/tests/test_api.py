@@ -1,3 +1,5 @@
+import time
+
 from fastapi.testclient import TestClient
 
 from shengjing_engine.api.app import create_app
@@ -86,3 +88,40 @@ def test_events_websocket_requires_token(services):
             c.post("/tasks", json={"kind": "tts.quick", "params": {"text": "hi"}}, headers=AUTH)
             event = ws.receive_json()
             assert event["type"] == "task" and event["task"]["kind"] == "tts.quick"
+
+
+def test_events_websocket_cleans_up_on_disconnect(services):
+    # 用真实的 uvicorn 服务：窗口关掉后不能留下订阅，否则引擎退出时会一直等这条连接
+    import socket
+    import threading
+
+    import uvicorn
+    from websockets.sync.client import connect
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    app = create_app(services, run_background=False)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        for _ in range(200):
+            if server.started:
+                break
+            time.sleep(0.02)
+        with connect(f"ws://127.0.0.1:{port}/events?token=test-token"):
+            for _ in range(100):
+                if services.events._subscribers:
+                    break
+                time.sleep(0.01)
+            assert len(services.events._subscribers) == 1
+        for _ in range(200):
+            if not services.events._subscribers:
+                break
+            time.sleep(0.01)
+        assert not services.events._subscribers
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+    assert not thread.is_alive()

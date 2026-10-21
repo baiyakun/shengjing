@@ -333,13 +333,23 @@ def create_app(services: EngineServices, *, run_background: bool = True) -> Fast
             return
         await ws.accept()
         queue = services.events.subscribe()
-        try:
+
+        async def push() -> None:
             while True:
-                event = await queue.get()
-                await ws.send_json(event)
+                await ws.send_json(await queue.get())
+
+        sender = asyncio.create_task(push())
+        try:
+            # 界面不会发消息过来，这里等的是断开：只等事件的话，窗口关掉后这条连接
+            # 永远不会结束，引擎退出时也会一直卡在等它
+            while (await ws.receive())["type"] != "websocket.disconnect":
+                pass
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
+            sender.cancel()
+            with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect, RuntimeError):
+                await sender
             services.events.unsubscribe(queue)
 
     return app
