@@ -2,8 +2,8 @@
 import { Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
-  Badge, Button, Card, DropZone, Field, ModelSelect, Page, Segmented, TaskProgress, Toggle,
-  avatarColor, resolveModel,
+  Badge, Button, Card, DropZone, Field, FitWarning, ModelSelect, Page, Segmented, TaskProgress,
+  Toggle, avatarColor, resolveModel,
 } from "../components";
 import { useResource, useTask, type ModelInfo, type SystemInfo } from "../engine";
 import { MEDIA_FILTER } from "../files";
@@ -57,6 +57,7 @@ export function Meeting() {
               onChange={(e) => setSpeakers(e.target.value)} />
           </Field>
         </div>
+        <FitWarning model={asr} />
         <Toggle checked={diarize && canDiarize} disabled={!canDiarize} onChange={setDiarize}
           label="区分发言人"
           hint={canDiarize ? "转写稿和纪要里会标出每句话是谁说的"

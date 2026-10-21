@@ -411,6 +411,7 @@ export function modelMeta(m: ModelInfo): string {
     return m.worker_installed ? "在线 API" : "在线 API · 未填写 API Key";
   }
   const parts = [`约 ${m.memory_gb} GB`, COMMERCIAL_LABEL[m.commercial]];
+  if (!m.fits) parts.push("本机内存不够");
   if (m.needs_conversion) parts.push("需自行转换权重");
   if (!m.worker_installed) parts.push("扩展包未安装");
   return parts.join(" · ");
@@ -424,25 +425,41 @@ export function resolveModel(
   return chosen ? list.find((m) => m.id === chosen) : list.find((m) => m.default);
 }
 
-/** 某类任务可选的模型（只列当前版本允许使用的），本地和在线 API 都在里面。 */
-export function ModelSelect({ models, kinds, value, onChange }: {
+/** 某类任务可选的模型（只列当前版本允许使用的），本地和在线 API 都在里面。
+ * 留空表示用默认模型；在设置里选默认模型时，留空表示用按这台机器推荐的模型。 */
+export function ModelSelect({ models, kinds, value, onChange, empty = "default" }: {
   models: ModelInfo[] | null;
   kinds: string[];
   value: string;
   onChange: (id: string) => void;
+  empty?: "default" | "recommended";
 }) {
   const options = (models ?? []).filter((m) => kinds.includes(m.kind) && m.allowed);
-  const fallback = options.find((m) => m.default);
+  const fallback = options.find((m) => (empty === "recommended" ? m.recommended : m.default));
   const local = options.filter((m) => m.worker !== "cloud");
   const cloud = options.filter((m) => m.worker === "cloud");
   const opt = (m: ModelInfo) => (
-    <option key={m.id} value={m.id}>{m.name} · {modelMeta(m)}</option>
+    <option key={m.id} value={m.id}>
+      {m.name}{m.recommended ? "（推荐）" : ""} · {modelMeta(m)}
+    </option>
   );
+  const emptyLabel = empty === "recommended" ? "推荐" : "默认";
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">默认{fallback ? `（${fallback.name}）` : ""}</option>
+      <option value="">{emptyLabel}{fallback ? `（${fallback.name}）` : ""}</option>
       {local.length > 0 && <optgroup label="本地模型">{local.map(opt)}</optgroup>}
       {cloud.length > 0 && <optgroup label="在线 API">{cloud.map(opt)}</optgroup>}
     </select>
+  );
+}
+
+/** 选中的本地模型放不进这台机器的内存时提醒一下。 */
+export function FitWarning({ model }: { model?: ModelInfo }) {
+  if (!model || model.fits) return null;
+  return (
+    <Callout>
+      这台 Mac 留给模型的内存不够运行 {model.name}（约 {model.memory_gb} GB），可能会失败。
+      可以换成更小的模型，或者在设置里连接在线服务。
+    </Callout>
   );
 }

@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
+from functools import cache
 
 GIB = 1024**3
 
@@ -36,7 +37,12 @@ def total_memory_gb() -> float:
         return 16.0
 
 
+@cache
 def chip_name() -> str:
+    """芯片型号，例如 Apple M2 Pro。SHENGJING_CHIP 可以覆盖（测试用）。"""
+    override = os.environ.get("SHENGJING_CHIP")
+    if override:
+        return override
     if sys.platform == "darwin":
         try:
             return subprocess.run(

@@ -2,8 +2,8 @@
 import { Plus, Sparkles, Trash2, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
-  Avatar, Badge, Button, Card, DropZone, Empty, Field, ModelSelect, Modal, Page, Player,
-  Segmented, TaskProgress, Toggle, Warnings,
+  Avatar, Badge, Button, Card, DropZone, Empty, Field, FitWarning, Modal, ModelSelect, Page,
+  Player, Segmented, TaskProgress, Toggle, Warnings, resolveModel,
 } from "../components";
 import { useEngine, useResource, useTask, type ModelInfo, type Voice } from "../engine";
 
@@ -167,6 +167,7 @@ export function Voices() {
           <Field label="模型">
             <ModelSelect models={models.data} kinds={["tts"]} value={testModel} onChange={setTestModel} />
           </Field>
+          <FitWarning model={resolveModel(models.data, ["tts"], testModel)} />
           <Field label="文字">
             <textarea rows={4} value={testText} onChange={(e) => setTestText(e.target.value)} />
           </Field>

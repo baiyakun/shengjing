@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass
 from typing import Any
 
 from .audio.ffmpeg import FFmpeg
 from .config import DataPaths, RuntimePaths
-from .core import catalog
+from .core import catalog, recommend
 from .core.db import CloudVoiceStore, Database, ProjectStore, VoiceStore
 from .core.events import EventHub
 from .core.memory import MemoryBudget, chip_name, memory_tier
@@ -106,6 +107,44 @@ class EngineServices:
 
     # ---------- 模型选择 ----------
 
+    def machine(self) -> recommend.Machine:
+        return recommend.Machine(
+            total_gb=self.budget.total_gb, budget_gb=self.budget.budget_gb, chip=chip_name()
+        )
+
+    def recommendations(self) -> dict[str, recommend.Recommendation]:
+        """按这台机器推荐的模型。设置里选定的模型不会被替换，但会影响推荐：
+        例如转写改用了在线服务，朗读模型就不用和转写模型挤在一起。"""
+        settings = self.settings.get()
+        in_use = {k: v for k, v in settings.model_overrides.items() if v}
+        if settings.llm.provider == "cloud":
+            in_use["llm"] = ""
+        elif settings.llm.local_model:
+            in_use["llm"] = settings.llm.local_model
+        return recommend.recommend(
+            self.machine(),
+            settings.edition,
+            worker_ready=self.workers.available,
+            provider_ready=self.provider_ready,
+            qa_enabled=settings.qa_enabled,
+            in_use=in_use,
+        )
+
+    def default_model_id(self, kind: str) -> str:
+        """某类任务实际使用的默认模型：设置里选定的优先，否则用推荐的。"""
+        settings = self.settings.get()
+        chosen = settings.model_overrides.get(kind)
+        if chosen:
+            spec = catalog.get(chosen)
+            if not spec.allowed_in(settings.edition):
+                raise LookupError(f"{spec.name} 的许可证不允许在商用版中使用")
+            return chosen
+        rec = self.recommendations().get(kind)
+        if rec is None or rec.model is None:
+            label = "商用版" if settings.edition == "commercial" else "个人版"
+            raise LookupError(f"{label}没有可用的“{recommend.KIND_LABEL.get(kind, kind)}”模型")
+        return rec.model
+
     def model_for(self, kind: str, requested: str | None = None) -> catalog.ModelSpec:
         settings = self.settings.get()
         if requested:
@@ -114,11 +153,9 @@ class EngineServices:
                 raise UserFacingError(f"{spec.name} 的许可证不允许在商用版中使用")
             return spec
         try:
-            return catalog.get(
-                catalog.default_model(kind, settings.edition, settings.model_overrides)
-            )
-        except LookupError as exc:
-            raise UserFacingError(str(exc)) from exc
+            return catalog.get(self.default_model_id(kind))
+        except (LookupError, KeyError) as exc:
+            raise UserFacingError(str(exc).strip("'\"")) from exc
 
     def require_worker(self, spec: catalog.ModelSpec) -> None:
         if spec.worker == "cloud":
@@ -169,7 +206,9 @@ class EngineServices:
 
     def llm_model_id(self) -> str:
         settings = self.settings.get()
-        return settings.llm.local_model or catalog.default_llm_for_memory(self.budget.total_gb)
+        if settings.llm.local_model:
+            return settings.llm.local_model
+        return self.recommendations()["llm"].model or "qwen3-4b-4bit"
 
     def chat_client_for_cloud(self) -> ChatClient:
         settings = self.settings.get()
@@ -192,22 +231,22 @@ class EngineServices:
 
     def model_list(self) -> list[dict[str, Any]]:
         settings = self.settings.get()
+        machine = self.machine()
+        recs = self.recommendations()
         defaults: dict[str, str] = {}
         for kind in {m.kind for m in catalog.all_models()}:
             if kind == "llm":
                 defaults[kind] = self.llm_model_id()
                 continue
-            try:
-                defaults[kind] = catalog.default_model(
-                    kind, settings.edition, settings.model_overrides
-                )
-            except LookupError:
-                pass
+            with contextlib.suppress(LookupError, KeyError):
+                defaults[kind] = self.default_model_id(kind)
         out = []
         for m in catalog.all_models():
             item = m.to_dict()
             item["allowed"] = m.allowed_in(settings.edition)
             item["default"] = defaults.get(m.kind) == m.id
+            item["recommended"] = recs.get(m.kind) is not None and recs[m.kind].model == m.id
+            item["fits"] = recommend.fits(m, machine)
             item["worker_installed"] = (
                 self.provider_ready(m.source) if m.worker == "cloud"
                 else self.workers.available(m.worker)
@@ -217,14 +256,17 @@ class EngineServices:
 
     def system_info(self) -> dict[str, Any]:
         settings = self.settings.get()
+        machine = self.machine()
         return {
-            "chip": chip_name(),
+            "chip": machine.chip,
+            "chip_class": machine.chip_class,
             "memory_total_gb": round(self.budget.total_gb, 1),
             "memory_budget_gb": round(self.budget.budget_gb, 1),
             "memory_tier": memory_tier(self.budget.total_gb),
             "edition": settings.edition,
             "ffmpeg": self.ffmpeg.available,
             "llm_default": self.llm_model_id(),
+            "recommendations": {k: r.to_dict() for k, r in self.recommendations().items()},
             "scheduler": self.scheduler.status(),
         }
 

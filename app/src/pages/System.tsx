@@ -155,7 +155,8 @@ export function Models() {
                 <div style={{ minWidth: 0 }}>
                   <div className="name">
                     <a href={m.url} target="_blank" rel="noreferrer">{m.name}</a>
-                    {m.default && <Badge tone="accent">默认</Badge>}
+                    {m.recommended && <Badge tone="accent" title="按这台 Mac 的内存和芯片推荐">推荐</Badge>}
+                    {m.default && !m.recommended && <Badge tone="accent" title="在设置里选定的默认模型">默认</Badge>}
                     {m.worker === "cloud" ? <Badge><Cloud size={11} />在线</Badge>
                       : <Badge><HardDrive size={11} />本地</Badge>}
                     <LicenseBadge model={m} />
@@ -163,6 +164,7 @@ export function Models() {
                       <Badge tone="warning">{m.worker === "cloud" ? "未填 API Key" : "扩展包未安装"}</Badge>
                     )}
                     {m.needs_conversion && <Badge tone="warning">需自行转换权重</Badge>}
+                    {!m.fits && <Badge tone="danger">本机内存不够</Badge>}
                   </div>
                   <div className="desc">
                     {m.notes}
@@ -207,6 +209,7 @@ export function Settings() {
   const engine = useEngine();
   const remote = useResource<{ settings: SettingsShape; secrets: Record<string, boolean> }>("/settings");
   const models = useResource<ModelInfo[]>("/catalog");
+  const system = useResource<SystemInfo>("/system");
   const [tab, setTab] = useState<Tab>("defaults");
   const [s, setS] = useState<SettingsShape | null>(null);
   const [apiKey, setApiKey] = useState("");
@@ -229,11 +232,13 @@ export function Settings() {
       setTimeout(() => setMsg(null), 2500);
       remote.reload();
       models.reload();
+      system.reload(); // 推荐会随设置变化（例如转写改用在线服务、关掉质检回听）
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err));
     }
   };
   const llms = (models.data ?? []).filter((m) => m.kind === "llm");
+  const llmRec = system.data?.recommendations.llm;
   const saveBar = (
     <div className="btn-row" style={{ marginTop: 4 }}>
       <Button variant="primary" icon={Save} onClick={save}>保存</Button>
@@ -253,7 +258,7 @@ export function Settings() {
 
       {tab === "defaults" && (
         <>
-          <DefaultModels overrides={s.model_overrides}
+          <DefaultModels overrides={s.model_overrides} models={models.data} system={system.data}
             onChange={(next) => setS({ ...s, model_overrides: next })} />
           {saveBar}
         </>
@@ -273,11 +278,19 @@ export function Settings() {
                 ]} />
             </Field>
             {s.llm.provider === "local" ? (
-              <Field label="本地模型" hint="通过 mlx-lm 在本机运行，第一次使用时下载">
+              <Field label="本地模型"
+                hint={llmRec ? `推荐理由：${llmRec.reason}。通过 mlx-lm 在本机运行，第一次使用时下载`
+                  : "通过 mlx-lm 在本机运行，第一次使用时下载"}>
                 <select value={s.llm.local_model ?? ""}
                   onChange={(e) => setS({ ...s, llm: { ...s.llm, local_model: e.target.value || null } })}>
-                  <option value="">按内存自动选择</option>
-                  {llms.map((m) => <option key={m.id} value={m.id}>{m.name} · 约 {m.memory_gb} GB</option>)}
+                  <option value="">
+                    按这台 Mac 推荐{llmRec?.model ? `（${llms.find((m) => m.id === llmRec.model)?.name ?? llmRec.model}）` : ""}
+                  </option>
+                  {llms.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}{m.recommended ? "（推荐）" : ""} · 约 {m.memory_gb} GB{m.fits ? "" : " · 本机内存不够"}
+                    </option>
+                  ))}
                 </select>
               </Field>
             ) : (

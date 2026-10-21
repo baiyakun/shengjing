@@ -1,8 +1,10 @@
 // 设置页的两部分：在线 API（四家服务商的 Key 和默认参数）、每类能力的默认模型
-import { ChevronDown, ChevronRight, ExternalLink, KeyRound, Save } from "lucide-react";
+import {
+  ChevronDown, ChevronRight, Cpu, ExternalLink, KeyRound, RotateCcw, Save, Sparkles, TriangleAlert,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge, Button, Card, Field, ModelSelect } from "../components";
-import { useEngine, useResource, type ModelInfo } from "../engine";
+import { useEngine, useResource, type ModelInfo, type SystemInfo } from "../engine";
 
 interface ProviderOption { key: string; label: string; default: string; hint: string }
 
@@ -135,23 +137,68 @@ const DEFAULT_KINDS: { kind: string; label: string; hint: string }[] = [
   { kind: "music", label: "音乐", hint: "音乐页、有声书里的配乐" },
 ];
 
-export function DefaultModels({ overrides, onChange }: {
+/** 这台机器的简短描述，例如“Apple M2 Pro · 32 GB 内存，留给模型 25.6 GB” */
+export function machineLine(s: SystemInfo) {
+  const chip = s.chip === "unknown" ? "Apple Silicon" : s.chip;
+  return `${chip} · ${s.memory_total_gb} GB 内存，留给模型 ${s.memory_budget_gb} GB`;
+}
+
+export function DefaultModels({ overrides, onChange, models, system }: {
   overrides: Record<string, string>;
   onChange: (next: Record<string, string>) => void;
+  models: ModelInfo[] | null;
+  system: SystemInfo | null;
 }) {
-  const models = useResource<ModelInfo[]>("/catalog");
+  const recs = system?.recommendations ?? {};
+  const name = (id: string | null | undefined) => models?.find((m) => m.id === id)?.name ?? id ?? "";
+  const customized = DEFAULT_KINDS.some(({ kind }) => overrides[kind]);
   return (
-    <Card title="每类能力默认用哪个模型" sub="本地模型和在线 API 可以混用；各页面也可以单独选择">
-      {DEFAULT_KINDS.map(({ kind, label, hint }) => (
-        <div key={kind} className="setting">
+    <Card title="默认模型" sub="按这台 Mac 的内存和芯片推荐；也可以自己选，本地模型和在线 API 可以混用"
+      actions={customized && (
+        <Button variant="ghost" size="sm" icon={RotateCcw} onClick={() => onChange({})}>全部改回推荐</Button>
+      )}>
+      {system && (
+        <div className="machine-strip">
+          <span className="drop-icon"><Cpu size={17} /></span>
           <div className="grow">
-            <div style={{ fontWeight: 600 }}>{label}</div>
-            <small>{hint}</small>
+            <div style={{ fontWeight: 600 }}>{machineLine(system)}</div>
+            <div className="small muted">
+              推荐时会考虑同时要用到的模型，例如逐句配音时的语音合成和质检用的转写模型
+              {system.chip_class === "base" ? "；基础款芯片算力较弱，同类模型里优先用更快的版本" : ""}
+            </div>
           </div>
-          <ModelSelect models={models.data} kinds={[kind]} value={overrides[kind] ?? ""}
-            onChange={(id) => onChange({ ...overrides, [kind]: id })} />
         </div>
-      ))}
+      )}
+      {DEFAULT_KINDS.map(({ kind, label, hint }) => {
+        const rec = recs[kind];
+        const chosen = overrides[kind] ?? "";
+        const custom = chosen && chosen !== rec?.model;
+        return (
+          <div key={kind} className="setting">
+            <div className="grow">
+              <div style={{ fontWeight: 600 }}>{label} <small className="inline">{hint}</small></div>
+              {rec && (
+                <div className={`rec-line ${rec.fits ? "" : "warn"}`}>
+                  {rec.fits ? <Sparkles size={13} /> : <TriangleAlert size={13} />}
+                  <span>
+                    {custom && <>推荐 {name(rec.model)}：</>}
+                    {rec.reason}
+                    {custom && (
+                      <> · <button className="link" onClick={() => {
+                        const next = { ...overrides };
+                        delete next[kind];
+                        onChange(next);
+                      }}>改回推荐</button></>
+                    )}
+                  </span>
+                </div>
+              )}
+            </div>
+            <ModelSelect models={models} kinds={[kind]} value={chosen} empty="recommended"
+              onChange={(id) => onChange({ ...overrides, [kind]: id })} />
+          </div>
+        );
+      })}
     </Card>
   );
 }

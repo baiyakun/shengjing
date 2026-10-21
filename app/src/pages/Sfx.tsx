@@ -2,7 +2,8 @@
 import { Sparkles, Waves } from "lucide-react";
 import { useState } from "react";
 import {
-  Button, Card, Empty, Field, ModelSelect, Page, Player, Segmented, TaskProgress, Toggle,
+  Button, Card, Empty, Field, FitWarning, ModelSelect, Page, Player, Segmented, TaskProgress,
+  Toggle, resolveModel,
 } from "../components";
 import { useResource, useTask, type ModelInfo } from "../engine";
 
@@ -45,6 +46,7 @@ export function Sfx() {
               options={[1, 2, 3, 4].map((n) => ({ value: n, label: String(n) }))} />
           </Field>
         </div>
+        <FitWarning model={resolveModel(models.data, ["sfx"], model)} />
         <Toggle checked={expand} onChange={setExpand} label="让 LLM 扩写描述"
           hint="把一句需求扩写成几条不同的具体描述，结果更多样（需要 LLM）" />
         <div className="btn-row" style={{ marginTop: 10 }}>

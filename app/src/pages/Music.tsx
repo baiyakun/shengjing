@@ -2,8 +2,8 @@
 import { Music2, Sparkles } from "lucide-react";
 import { useState } from "react";
 import {
-  Button, Callout, Card, Empty, Field, ModelSelect, Page, Player, Segmented, TaskProgress,
-  resolveModel,
+  Button, Callout, Card, Empty, Field, FitWarning, ModelSelect, Page, Player, Segmented,
+  TaskProgress, resolveModel,
 } from "../components";
 import { useResource, useTask, type ModelInfo } from "../engine";
 
@@ -50,6 +50,7 @@ export function Music() {
           <Field label="模型">
             <ModelSelect models={models.data} kinds={["music"]} value={model} onChange={setModel} />
           </Field>
+          {installed !== false && <FitWarning model={current} />}
           <Field label="创作方式">
             <Segmented value={mode} onChange={setMode} block options={[
               { value: "theme", label: "给个主题" },

@@ -18,6 +18,7 @@
 - [目录结构](#目录结构)
 - [开发](#开发)
 - [打包发布](#打包发布)
+- [默认模型怎么选](#默认模型怎么选)
 - [在线 API](#在线-api)
 - [使用的开源框架与模型](#使用的开源框架与模型)
 - [许可证注意事项](#许可证注意事项)
@@ -47,6 +48,7 @@
   每个页面单独选，也可以在设置里设默认。
 - **定位个人使用**：默认是个人版，可以使用所有模型（包括非商用许可的模型）。
   保留了商用版开关，打开后会自动排除非商用许可的模型。
+- **按机器推荐模型**：根据内存和芯片给每类任务推荐默认模型，并说明理由，见[默认模型怎么选](#默认模型怎么选)。
 - **按内存调度**：根据机器内存决定哪些模型常驻、哪些用完就关闭进程释放内存。
 
 ## 架构
@@ -136,6 +138,33 @@ scripts/test_all.sh
 见 [packaging/README.md](packaging/README.md)。要点：需要苹果开发者账号签名和公证；
 App 内置独立的 Python 运行环境；分析包和音乐包作为扩展包按需下载。
 
+## 默认模型怎么选
+
+每类任务的默认模型按这台 Mac 推荐（`engine/src/shengjing_engine/core/recommend.py`），
+设置 → 默认模型里能看到每一项的推荐理由。自己选的模型优先，随时可以“全部改回推荐”。
+
+推荐规则：
+
+- **放得进内存**：留给模型的内存 = 总内存 − 系统预留（4 GB 或 20%，取较大值）。
+  逐句配音时语音合成要和质检用的转写模型同时放下，否则每句都要换模型，会慢很多；
+  实时转写要和翻译用的 LLM 同时放下。关掉质检回听后，朗读模型就不用和转写模型一起放下。
+- **LLM 最多用一半**：给语音模型留出空间。
+- **芯片**：基础款芯片（M1–M4，不带 Pro / Max / Ultra）优先用更快的 dots.tts MeanFlow。
+- **版本**：商用版只在可商用的模型里选，并优先选可以直接商用的（例如实时转写选 Nemotron）。
+- **在线服务兜底**：本地模型放不下，或者需要的扩展包还没装，而对应的在线服务已经连接时，推荐在线服务。
+- 需要自己转换权重的模型（Fish Drama 3、Breeze TTS 2）不会被自动推荐。
+
+个人版、Pro / Max 芯片上的推荐结果（转写都是 Qwen3-ASR 1.7B，音效都是 MOSS-SoundEffect）：
+
+| 内存 | 留给模型 | 朗读 / 克隆 | 多人对话 | 实时转写 | LLM | 音乐 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 16 GB | 12 GB | dots.tts SOAR | ⚠️ 放不下，建议用在线服务或逐句模式 | Confucius4-R2T2 | Qwen3 4B | ⚠️ 放不下，建议用在线服务 |
+| 18 GB | 14 GB | Fish S2 Pro | VibeVoice Large（质检时要换模型） | Confucius4-R2T2 | Qwen3 4B | ACE-Step 1.5 |
+| 24–48 GB | 19.2–38.4 GB | Fish S2 Pro | MOSS-TTSD v1.0 | Confucius4-R2T2 | Qwen3.5 9B | ACE-Step 1.5 |
+| 64 GB 以上 | 51.2 GB 起 | Fish S2 Pro | MOSS-TTSD v1.0 | Confucius4-R2T2 | Qwen3.6 35B-A3B | ACE-Step 1.5 |
+
+内存数值目前多数是估算，在真实 Mac 上实测后会更新 `core/catalog.py`，推荐结果也会跟着变。
+
 ## 在线 API
 
 在设置页填写对应服务商的 API Key（保存在 macOS 钥匙串里）后，它的模型就会出现在各页面的模型选择里。
@@ -208,25 +237,25 @@ App 内置独立的 Python 运行环境；分析包和音乐包作为扩展包�
 
 | 模型 | 用途 | 权重许可证 | 商用 | 内存 | 链接 |
 | --- | --- | --- | --- | --- | --- |
-| Fish S2 Pro | 朗读、克隆、行内情绪标签（个人版默认） | Fish Audio Research License | ❌ | ~9 GB | [MLX 权重](https://huggingface.co/appautomaton/fishaudio-s2-pro-8bit-mlx) |
+| Fish S2 Pro | 朗读、克隆、行内情绪标签（个人版、18 GB 以上推荐） | Fish Audio Research License | ❌ | ~9 GB | [MLX 权重](https://huggingface.co/appautomaton/fishaudio-s2-pro-8bit-mlx) |
 | Fish Audio Drama 3 | 最多 16 角色对话、语气描述、指定时长 | Fish Audio Research License | ❌ | 46 GB（实测） | [官方仓库](https://huggingface.co/fishaudio/drama-3)（需自行转换） |
-| dots.tts SOAR / MeanFlow | 朗读、克隆、流式输出（商用版默认） | Apache-2.0 | ✅ | 7.0 / 7.2 GB（实测） | [MLX 权重](https://huggingface.co/appautomaton/dots-tts-mlx) |
+| dots.tts SOAR / MeanFlow | 朗读、克隆、流式输出（商用版和 16 GB 机器推荐；基础款芯片用更快的 MeanFlow） | Apache-2.0 | ✅ | 7.0 / 7.2 GB（实测） | [MLX 权重](https://huggingface.co/appautomaton/dots-tts-mlx) |
 | FireRedTTS3 Base | 多语种克隆 | Apache-2.0 | ✅ | ~8.5 GB | [MLX 权重](https://huggingface.co/appautomaton/fireredtts3-mlx) |
 | OpenMOSS TTS Local | 朗读、克隆 | Apache-2.0 | ✅ | ~7.5 GB | [MLX 权重](https://huggingface.co/appautomaton/openmoss-tts-local-mlx) |
-| MOSS-TTSD v1.0 | 多人对话（默认对话模型） | Apache-2.0 | ✅ | ~14 GB | [MLX 权重](https://huggingface.co/appautomaton/openmoss-ttsd-mlx) |
+| MOSS-TTSD v1.0 | 多人对话（24 GB 以上推荐） | Apache-2.0 | ✅ | ~14 GB | [MLX 权重](https://huggingface.co/appautomaton/openmoss-ttsd-mlx) |
 | MOSS Audio Tokenizer | MOSS 系列共用的音频编解码器 | Apache-2.0 | ✅ | 含在上面 | [MLX 权重](https://huggingface.co/appautomaton/openmoss-audio-tokenizer-mlx) |
 | LongCat AudioDiT 3.5B | 扩散式朗读、克隆 | MIT | ✅ | ~7 GB | [MLX 权重](https://huggingface.co/appautomaton/longcat-audiodit-3.5b-8bit-mlx) |
-| VibeVoice Large | 长篇多人对话 | Apache-2.0（MLX 权重卡） | ✅ | ~13 GB | [MLX 权重](https://huggingface.co/appautomaton/vibevoice-mlx) |
+| VibeVoice Large | 长篇多人对话（18 GB 机器推荐） | Apache-2.0（MLX 权重卡） | ✅ | ~13 GB | [MLX 权重](https://huggingface.co/appautomaton/vibevoice-mlx) |
 | DramaBox | 48 kHz 立体声朗读 | LTX-2 Community License | ⚠️ | ~19 GB | [MLX 权重](https://huggingface.co/appautomaton/dramabox-tts-3.3b-bf16-mlx) |
 | Gemma 3 12B（DramaBox 的文本编码器） | DramaBox 自动下载 | Gemma Terms of Use | ⚠️ | 含在上面 | [MLX 权重](https://huggingface.co/appautomaton/gemma-3-12b-it-backbone-4bit-mlx) |
 | Breeze TTS 2 | 用文字描述造声音、指令控制语气 | BreezeBlue Research and Non-Commercial License | ❌ | 9.2 GB（实测） | [官方仓库](https://huggingface.co/BreezeBlue/Breeze-TTS-2)（需自行转换） |
 | Step-Audio-EditX | 录音编辑：情绪、风格、语速、降噪等 | Apache-2.0 | ✅ | ~6.5 GB | [MLX 权重](https://huggingface.co/appautomaton/step-audio-editx-8bit-mlx) |
 | MOSS-SoundEffect | 文字生成音效 | Apache-2.0 | ✅ | ~9 GB | [MLX 权重](https://huggingface.co/appautomaton/openmoss-sound-effect-mlx) |
-| Qwen3-ASR 1.7B | 中文、英文、中英混合转写（默认） | Apache-2.0 | ✅ | ~4 GB | [MLX 权重](https://huggingface.co/appautomaton/qwen3-asr-1.7b-int8-mlx) |
+| Qwen3-ASR 1.7B | 中文、英文、中英混合转写（推荐） | Apache-2.0 | ✅ | ~4 GB | [MLX 权重](https://huggingface.co/appautomaton/qwen3-asr-1.7b-int8-mlx) |
 | Cohere Transcribe | 长音频快速转写 | Apache-2.0 | ✅ | ~4 GB | [MLX 权重](https://huggingface.co/appautomaton/cohere-asr-mlx) |
 | IBM Granite Speech 4.0 1B | 英法德西葡日转写（不支持中文） | Apache-2.0 | ✅ | ~4.5 GB | [MLX 权重](https://huggingface.co/appautomaton/granite-4.0-1b-speech-int8-mlx) |
-| Confucius4-R2T2 | 实时转写，30 种语言（个人版默认） | NetEase Youdao Model Use License | ⚠️ | ~6 GB | [MLX 权重](https://huggingface.co/appautomaton/confucius4-r2t2-bf16-mlx) |
-| NVIDIA Nemotron 3.5 ASR Streaming | 实时转写（商用版默认） | OpenMDW-1.1 | ✅ | ~2 GB | [MLX 权重](https://huggingface.co/appautomaton/nemotron-3.5-asr-streaming-0.6b-int8-mlx) |
+| Confucius4-R2T2 | 实时转写，30 种语言（个人版推荐） | NetEase Youdao Model Use License | ⚠️ | ~6 GB | [MLX 权重](https://huggingface.co/appautomaton/confucius4-r2t2-bf16-mlx) |
+| NVIDIA Nemotron 3.5 ASR Streaming | 实时转写（商用版推荐） | OpenMDW-1.1 | ✅ | ~2 GB | [MLX 权重](https://huggingface.co/appautomaton/nemotron-3.5-asr-streaming-0.6b-int8-mlx) |
 
 以上 MLX 权重均由 mlx-speech 作者转换发布，原始模型分别来自 Fish Audio、dots-studio、FireRedTeam、
 OpenMOSS、美团 LongCat、微软、Resemble AI、Google、BreezeBlue、阶跃星辰、Qwen、Cohere、IBM、
@@ -236,9 +265,9 @@ OpenMOSS、美团 LongCat、微软、Resemble AI、Google、BreezeBlue、阶跃�
 
 | 模型 | 用途 | 许可证 | 商用 | 内存 | 链接 |
 | --- | --- | --- | --- | --- | --- |
-| Qwen3 4B（4bit） | 16GB 机器的默认 LLM | Apache-2.0 | ✅ | ~4 GB | https://huggingface.co/mlx-community/Qwen3-4B-4bit |
-| Qwen3.5 9B（4bit） | 32GB 机器的默认 LLM | Apache-2.0 | ✅ | ~8 GB | https://huggingface.co/mlx-community/Qwen3.5-9B-4bit |
-| Qwen3.6 35B-A3B（4bit） | 64GB 以上机器的默认 LLM | Apache-2.0 | ✅ | ~24 GB | https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-4bit |
+| Qwen3 4B（4bit） | 16–18 GB 机器推荐 | Apache-2.0 | ✅ | ~4 GB | https://huggingface.co/mlx-community/Qwen3-4B-4bit |
+| Qwen3.5 9B（4bit） | 24–48 GB 机器推荐 | Apache-2.0 | ✅ | ~8 GB | https://huggingface.co/mlx-community/Qwen3.5-9B-4bit |
+| Qwen3.6 35B-A3B（4bit） | 64 GB 以上机器推荐 | Apache-2.0 | ✅ | ~24 GB | https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-4bit |
 
 也可以在设置里改用任意 OpenAI 兼容的云端接口，此时适用该服务自己的条款。
 

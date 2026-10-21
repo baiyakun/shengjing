@@ -2,8 +2,8 @@
 import { FilePlus2, RotateCcw, Save, Sparkles, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
-  Avatar, Badge, Button, Card, Empty, Field, ModelSelect, Page, Player, Segmented, TaskProgress,
-  Toggle, Warnings,
+  Avatar, Badge, Button, Card, Empty, Field, FitWarning, ModelSelect, Page, Player, Segmented,
+  TaskProgress, Toggle, Warnings, resolveModel,
 } from "../components";
 import { useEngine, useResource, useTask, type ModelInfo, type Voice } from "../engine";
 
@@ -241,6 +241,7 @@ export function Studio({ style }: { style: "audiobook" | "podcast" }) {
                 <Segmented value={format} options={FORMATS} onChange={setFormat} block />
               </Field>
             </div>
+            <FitWarning model={resolveModel(models.data, dialogue ? ["dialogue"] : ["tts"], model)} />
             <Toggle checked={qa} onChange={setQa} label="质检回听"
               hint="生成后转写回文字和原稿比对，吞字、错字的句子自动重做" />
             <Toggle checked={dialogue} onChange={(v) => { setDialogue(v); setModel(""); }}

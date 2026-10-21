@@ -556,54 +556,12 @@ _MODELS = _MODELS + _CLOUD_MODELS
 
 CATALOG: dict[str, ModelSpec] = {spec.id: spec for spec in _MODELS}
 
-# 每类任务的默认模型：(个人版, 商用版)
-_DEFAULTS: dict[str, tuple[str, str]] = {
-    "tts": ("fish-s2-pro", "dots-tts-soar"),
-    "dialogue": ("moss-ttsd", "moss-ttsd"),
-    "edit": ("step-audio", "step-audio"),
-    "sfx": ("moss-sound-effect", "moss-sound-effect"),
-    "asr": ("qwen3-asr-1.7b", "qwen3-asr-1.7b"),
-    "asr_stream": ("confucius4-r2t2", "nemotron-asr-streaming"),
-    "voice_design": ("breeze-tts-2", ""),
-    "diarization": ("pyannote-community-1", "pyannote-community-1"),
-    "diarization_stream": ("sortformer-streaming-v2", "sortformer-streaming-v2"),
-    "alignment": ("qwen3-forced-aligner", "qwen3-forced-aligner"),
-    "separation": ("htdemucs", "htdemucs"),
-    "vad": ("silero-vad", "silero-vad"),
-    "music": ("ace-step-1.5", "ace-step-1.5"),
-}
-
 
 def get(model_id: str) -> ModelSpec:
     try:
         return CATALOG[model_id]
     except KeyError as exc:
         raise KeyError(f"未知模型：{model_id}") from exc
-
-
-def default_llm_for_memory(total_gb: float) -> str:
-    """按机器内存选默认本地 LLM。"""
-    if total_gb >= 64:
-        return "qwen3.6-35b-a3b-4bit"
-    if total_gb >= 32:
-        return "qwen3.5-9b-4bit"
-    return "qwen3-4b-4bit"
-
-
-def default_model(kind: str, edition: Edition, overrides: dict[str, str] | None = None) -> str:
-    """返回某类任务的默认模型 ID；商用版没有可用模型时抛出 LookupError。"""
-    if overrides and overrides.get(kind):
-        chosen = overrides[kind]
-        spec = get(chosen)
-        if not spec.allowed_in(edition):
-            raise LookupError(f"{spec.name} 的许可证不允许在商用版中使用")
-        return chosen
-    personal, commercial = _DEFAULTS.get(kind, ("", ""))
-    chosen = personal if edition == "personal" else commercial
-    if not chosen:
-        label = "商用版" if edition == "commercial" else "个人版"
-        raise LookupError(f"{label}没有可用的“{kind}”模型")
-    return chosen
 
 
 def models_for(kind: str, edition: Edition) -> list[ModelSpec]:

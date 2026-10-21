@@ -56,8 +56,20 @@ export interface ModelInfo {
   notes: string;
   needs_conversion: boolean;
   allowed: boolean;
+  /** 实际使用的默认模型：设置里选定的，或者按这台机器推荐的 */
   default: boolean;
+  /** 按这台机器推荐的模型 */
+  recommended: boolean;
+  /** 能放进这台机器留给模型的内存（在线服务总是 true） */
+  fits: boolean;
   worker_installed: boolean;
+}
+
+export interface Recommendation {
+  kind: string;
+  model: string | null;
+  reason: string;
+  fits: boolean;
 }
 
 export interface WorkerStatus {
@@ -71,12 +83,14 @@ export interface WorkerStatus {
 
 export interface SystemInfo {
   chip: string;
+  chip_class: "base" | "pro" | "max" | "ultra" | null;
   memory_total_gb: number;
   memory_budget_gb: number;
   memory_tier: number;
   edition: "personal" | "commercial";
   ffmpeg: boolean;
   llm_default: string;
+  recommendations: Record<string, Recommendation>;
   scheduler: { budget_gb: number; used_gb: number; workers: WorkerStatus[] };
 }
 
