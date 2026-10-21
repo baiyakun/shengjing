@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - name: 安装 pnpm
-        run: npm install -g pnpm@10
+        run: npm install -g pnpm@11
       - name: 构建界面
         working-directory: app
         run: |
