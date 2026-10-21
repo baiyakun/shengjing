@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import socketserver
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -63,8 +64,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"ok": False})
 
 
+class Server(ThreadingHTTPServer):
+    def server_bind(self) -> None:
+        # HTTPServer.server_bind 会反查本机主机名（getfqdn），在部分 Mac 上要等很久
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+
+
 def main() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = Server(("127.0.0.1", 0), Handler)
     print("some import noise", flush=True)
     print(json.dumps({"event": "ready", "port": server.server_address[1]}), flush=True)
     server.serve_forever()

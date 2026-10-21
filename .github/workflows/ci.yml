@@ -55,6 +55,8 @@ jobs:
   intel:
     name: Intel Mac（只能使用在线 API）
     runs-on: macos-15-intel
+    env:
+      UV_PYTHON: "3.13"  # 和 App 里带的 Python 版本一致
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.3.0
