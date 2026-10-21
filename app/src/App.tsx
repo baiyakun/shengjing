@@ -2,6 +2,7 @@ import { AudioWaveform, LoaderCircle, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Tile } from "./components";
 import { EngineProvider, useEngineState, useResource, type SystemInfo } from "./engine";
+import { activeDownloads } from "./downloads";
 import { openExternal } from "./files";
 import { APPS, NAV_GROUPS, NavContext, type PageId } from "./nav";
 import { Edit } from "./pages/Edit";
@@ -42,6 +43,8 @@ function MachineCard({ onClick }: { onClick: () => void }) {
     const timer = setInterval(system.reload, 5000);
     return () => clearInterval(timer);
   }, [system.reload]);
+  const { downloads } = useEngineState();
+  const downloading = activeDownloads(downloads);
   const s = system.data;
   if (!s) return null;
   const used = s.scheduler.used_gb;
@@ -54,6 +57,15 @@ function MachineCard({ onClick }: { onClick: () => void }) {
         <span>{used.toFixed(1)} / {s.memory_budget_gb} GB</span>
       </div>
       <div className="gauge"><div style={{ width: `${pct}%` }} /></div>
+      {downloading.length > 0 && (
+        <div className="machine-dl">
+          <div className="machine-head">
+            <span>下载模型{downloading.length > 1 ? `（${downloading.length} 个）` : ""}</span>
+            <span>{Math.round(downloading[0][1].fraction * 100)}%</span>
+          </div>
+          <div className="gauge downloading"><div style={{ width: `${downloading[0][1].fraction * 100}%` }} /></div>
+        </div>
+      )}
       <div className="machine-workers small">
         {running.length === 0 ? (
           <span className="faint">没有模型在运行</span>

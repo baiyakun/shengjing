@@ -64,3 +64,11 @@ jobs:
           uv pip install --python .venv-base/bin/python -e engine -e workers/worker-kit \
             -e workers/speech "mlx-lm>=0.32"
           .venv-base/bin/python -c "import mlx_speech, mlx_lm, shengjing_speech_worker, shengjing_engine; print(mlx_speech.__version__)"
+      - name: 模型下载表和 mlx-speech 一致
+        run: |
+          .venv-base/bin/python -c "
+          from shengjing_engine.core.downloads import mlx_speech_mismatches
+          problems = mlx_speech_mismatches()
+          print('\n'.join(problems) or 'ok')
+          raise SystemExit(1 if problems else 0)
+          "

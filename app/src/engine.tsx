@@ -63,6 +63,38 @@ export interface ModelInfo {
   /** 能放进这台机器留给模型的内存（在线服务总是 true） */
   fits: boolean;
   worker_installed: boolean;
+  /** 本地模型的下载状态；在线服务为 null */
+  download: DownloadStatus | null;
+}
+
+export interface DownloadJob {
+  model: string;
+  state: "queued" | "running" | "done" | "failed" | "cancelled";
+  done_bytes: number;
+  total_bytes: number;
+  fraction: number;
+  message: string;
+  error: string | null;
+  error_kind: string | null;
+}
+
+export interface DownloadStatus {
+  /** ready 已下载；partial 没下完；missing 没下载；unmanaged/conversion/unavailable 不能在这里下载 */
+  state: "ready" | "partial" | "missing" | "unmanaged" | "conversion" | "unavailable";
+  bytes: number;
+  note: string;
+  remote_bytes: number | null;
+  gated: boolean;
+  job: DownloadJob | null;
+}
+
+export interface DownloadsOverview {
+  models: Record<string, DownloadStatus>;
+  used_bytes: number;
+  free_bytes: number;
+  path: string;
+  endpoint: string;
+  sizes_updated_at: number | null;
 }
 
 export interface Recommendation {
@@ -174,6 +206,10 @@ interface EngineState {
   engine: Engine | null;
   info: EngineInfo | null;
   tasks: Record<string, Task>;
+  /** 正在进行或刚结束的模型下载（引擎推送） */
+  downloads: Record<string, DownloadJob>;
+  /** 下载状态有变化（完成、删除、查到大小）时加一，页面据此重新读取 */
+  downloadRev: number;
   restart: () => Promise<void>;
 }
 
@@ -182,6 +218,8 @@ const EngineContext = createContext<EngineState | null>(null);
 export function EngineProvider({ children }: { children: ReactNode }) {
   const [info, setInfo] = useState<EngineInfo | null>(null);
   const [tasks, setTasks] = useState<Record<string, Task>>({});
+  const [downloads, setDownloads] = useState<Record<string, DownloadJob>>({});
+  const [downloadRev, setDownloadRev] = useState(0);
 
   // 轮询外壳报告的引擎状态（引擎崩溃时外壳会自动重启它，端口和令牌可能变化）
   useEffect(() => {
@@ -229,12 +267,33 @@ export function EngineProvider({ children }: { children: ReactNode }) {
       .get<Task[]>("/tasks?limit=200")
       .then((list) => setTasks(Object.fromEntries(list.map((t) => [t.id, t]))))
       .catch(() => undefined);
+    engine
+      .get<DownloadsOverview>("/downloads")
+      .then((o) => setDownloads(Object.fromEntries(
+        Object.entries(o.models).flatMap(([id, st]) => (st.job ? [[id, st.job]] : [])),
+      )))
+      .catch(() => undefined);
     const connect = () => {
       ws = new WebSocket(engine.eventsUrl());
       ws.onmessage = (msg) => {
         const event = JSON.parse(msg.data);
         if (event.type === "task") {
           setTasks((prev) => ({ ...prev, [event.task.id]: event.task }));
+        } else if (event.type === "download") {
+          const job = event.download as DownloadJob;
+          setDownloads((prev) => ({ ...prev, [job.model]: job }));
+          if (job.state === "done" || job.state === "failed" || job.state === "cancelled") {
+            setDownloadRev((n) => n + 1);
+          }
+        } else if (event.type === "download_sizes" || event.type === "download_deleted") {
+          if (event.type === "download_deleted") {
+            setDownloads((prev) => {
+              const next = { ...prev };
+              delete next[event.model];
+              return next;
+            });
+          }
+          setDownloadRev((n) => n + 1);
         }
       };
       ws.onclose = () => {
@@ -254,7 +313,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <EngineContext.Provider value={{ engine, info, tasks, restart }}>
+    <EngineContext.Provider value={{ engine, info, tasks, downloads, downloadRev, restart }}>
       {children}
     </EngineContext.Provider>
   );
@@ -334,4 +393,31 @@ export function useResource<T>(path: string | null) {
   }, [reload]);
 
   return { data, error, reload, setData };
+}
+
+/** 模型下载：总览（随下载完成、删除自动刷新）、实时进度和操作。 */
+export function useDownloads() {
+  const engine = useEngine();
+  const { downloads, downloadRev } = useEngineState();
+  const overview = useResource<DownloadsOverview>("/downloads");
+  const { reload } = overview;
+  useEffect(() => {
+    if (downloadRev > 0) reload();
+  }, [downloadRev, reload]);
+  const status = useCallback(
+    (id: string): DownloadStatus | undefined => {
+      const st = overview.data?.models[id];
+      if (!st) return undefined;
+      return { ...st, job: downloads[id] ?? st.job };
+    },
+    [overview.data, downloads],
+  );
+  return {
+    overview: overview.data,
+    status,
+    start: (id: string) => engine.post(`/downloads/${id}`, {}),
+    cancel: (id: string) => engine.post(`/downloads/${id}/cancel`, {}),
+    remove: (id: string) => engine.del(`/downloads/${id}`),
+    reload,
+  };
 }

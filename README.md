@@ -19,6 +19,7 @@
 - [开发](#开发)
 - [打包发布](#打包发布)
 - [默认模型怎么选](#默认模型怎么选)
+- [模型下载](#模型下载)
 - [在线 API](#在线-api)
 - [使用的开源框架与模型](#使用的开源框架与模型)
 - [许可证注意事项](#许可证注意事项)
@@ -165,6 +166,31 @@ App 内置独立的 Python 运行环境；分析包和音乐包作为扩展包�
 
 内存数值目前多数是估算，在真实 Mac 上实测后会更新 `core/catalog.py`，推荐结果也会跟着变。
 
+## 模型下载
+
+本地模型都在 App 里下载和管理，不需要命令行：
+
+- **模型管理页**：每个本地模型都能单独下载、取消、删除，显示真实的下载大小、进度、
+  已占用的空间和磁盘剩余空间。“下载推荐模型”会列出按这台 Mac 推荐、还没下载的模型，
+  常用的（朗读、转写、LLM、音效）默认勾选。首页在常用模型没下载时也会提醒。
+- **用到时自动下载**：没提前下载的模型，第一次用到时会先下载，进度显示在任务里；
+  任务等着用的模型会排到下载队列最前面。
+- **断点续传**：下载中断或取消后，再点下载会接着下。
+- **下载源**：设置 → 下载与生成里可以选 Hugging Face 官方、国内镜像 hf-mirror.com 或自定义地址，保存后马上生效。
+- **存放位置**：`~/Library/Application Support/Shengjing/models/`，使用 Hugging Face 的标准缓存结构，
+  模型进程加载时直接用这里的文件。几个模型共用的文件（例如 MOSS 系列共用的音频编解码器）
+  删除其中一个模型时会保留。
+
+几点说明：
+
+- 下载的文件范围和 mlx-speech、mlx-lm 加载时完全一致（CI 会在 Mac 上核对 mlx-speech 的模型表）。
+- pyannote 说话人区分模型需要先在它的 Hugging Face 页面同意使用条款，并在设置里填写访问令牌。
+- ACE-Step 的模型用 ACE-Step 自带的下载器下载（它下载后还会同步一些代码文件），需要先安装音乐扩展包。
+- HT-Demucs 第一次分离人声时自动下载（约 80 MB），Silero VAD 随分析扩展包提供；
+  Fish Drama 3、Breeze TTS 2 没有现成的 MLX 权重，需要自己转换。
+- 常用模型的下载大小：Fish S2 Pro 6.3 GB、dots.tts 3.2 GB、Qwen3-ASR 2.3 GB、MOSS-SoundEffect 6.3 GB、
+  MOSS-TTSD 10.2 GB、Qwen3 4B 2.1 GB、Qwen3.5 9B 5.6 GB、Qwen3.6 35B-A3B 19 GB、ACE-Step 1.5 9.4 GB。
+
 ## 在线 API
 
 在设置页填写对应服务商的 API Key（保存在 macOS 钥匙串里）后，它的模型就会出现在各页面的模型选择里。
@@ -219,6 +245,7 @@ App 内置独立的 Python 运行环境；分析包和音乐包作为扩展包�
 | HTTPX | HTTP 客户端 | BSD-3-Clause | https://github.com/encode/httpx |
 | NumPy | 混音和音频处理 | BSD-3-Clause | https://github.com/numpy/numpy |
 | keyring | 把密钥存进 macOS 钥匙串 | MIT | https://github.com/jaraco/keyring |
+| huggingface_hub | 下载模型、查询下载大小 | Apache-2.0 | https://github.com/huggingface/huggingface_hub |
 | msgpack | Fish Audio 克隆请求的编码格式 | Apache-2.0 | https://github.com/msgpack/msgpack-python |
 | FFmpeg | 音视频编解码、响度标准化 | LGPL-2.1+（必须使用 LGPL 构建） | https://ffmpeg.org |
 | PyTorch | 分析扩展包的运行框架 | BSD-3-Clause | https://github.com/pytorch/pytorch |

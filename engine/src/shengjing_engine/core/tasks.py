@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import time
@@ -20,6 +21,7 @@ from ..audio.ffmpeg import FFmpegError
 from ..orchestration.llm import LLMError
 from ..providers.base import ProviderError
 from .db import Database, new_id
+from .downloads import DownloadError
 from .events import EventHub
 from .extensions import ExtensionError
 from .planner import InsufficientMemory
@@ -50,6 +52,7 @@ _READABLE_ERRORS = (
     FFmpegError,
     ExtensionError,
     ProviderError,
+    DownloadError,
 )
 
 
@@ -65,12 +68,21 @@ class TaskContext:
     def progress(self, fraction: float, message: str = "") -> None:
         self._queue._set_progress(self.task_id, max(0.0, min(1.0, fraction)), message)
 
+    def note(self, message: str) -> None:
+        """只更新进度说明，不改进度（例如下载模型时）。"""
+        self._queue._update(self.task_id, message=message)
+
     def check_cancelled(self) -> None:
         if self.task_id in self._queue._cancel_requested:
             raise TaskCancelled()
 
 
 Workflow = Callable[[TaskContext], Awaitable[dict[str, Any]]]
+
+CURRENT_TASK: contextvars.ContextVar[TaskContext | None] = contextvars.ContextVar(
+    "current_task", default=None
+)
+"""正在执行的任务。模型调度等底层代码用它把进度（例如下载模型）报告给任务。"""
 
 
 @dataclass(frozen=True)
@@ -204,6 +216,7 @@ class TaskQueue:
         )
         self._running = tid
         self._update(tid, status="running", progress=0.0, message="开始", error=None)
+        token = CURRENT_TASK.set(ctx)
         try:
             result = await info.fn(ctx)
         except TaskCancelled:
@@ -218,5 +231,6 @@ class TaskQueue:
         else:
             self._update(tid, status="succeeded", progress=1.0, message="完成", result=result)
         finally:
+            CURRENT_TASK.reset(token)
             self._cancel_requested.discard(tid)
             self._running = None

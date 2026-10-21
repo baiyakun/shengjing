@@ -11,6 +11,7 @@ from .audio.ffmpeg import FFmpeg
 from .config import DataPaths, RuntimePaths
 from .core import catalog, recommend
 from .core.db import CloudVoiceStore, Database, ProjectStore, VoiceStore
+from .core.downloads import DownloadManager
 from .core.events import EventHub
 from .core.memory import MemoryBudget, chip_name, memory_tier
 from .core.scheduler import ModelScheduler
@@ -80,7 +81,8 @@ def build_worker_specs(runtime: RuntimePaths, paths: DataPaths) -> list[WorkerSp
             health_path="/health",
             startup_timeout=MODEL_DOWNLOAD_TIMEOUT,
             unavailable_reason="音乐扩展包未安装（ACE-Step）",
-            env={"ACESTEP_API_HOST": "127.0.0.1"},
+            env={"ACESTEP_API_HOST": "127.0.0.1",
+                 "ACESTEP_CHECKPOINTS_DIR": str(paths.hf_home / "acestep")},
             port_env="ACESTEP_API_PORT",
             token_env="ACESTEP_API_KEY",
         ),
@@ -104,6 +106,7 @@ class EngineServices:
     budget: MemoryBudget
     ffmpeg: FFmpeg
     cloud_voices: CloudVoiceStore
+    downloads: DownloadManager
 
     # ---------- 模型选择 ----------
 
@@ -166,6 +169,49 @@ class EngineServices:
         if not self.workers.available(spec.worker):
             reason = self.workers.specs[spec.worker].unavailable_reason
             raise UserFacingError(reason or f"{spec.worker} 进程不可用")
+
+    # ---------- 模型下载 ----------
+
+    def hub_env(self) -> dict[str, str]:
+        """下载模型用的环境变量：缓存位置、下载源（镜像）、访问令牌。"""
+        env = {"HF_HOME": str(self.paths.hf_home)}
+        endpoint = self.settings.get().hf_endpoint.strip()
+        if endpoint:
+            env["HF_ENDPOINT"] = endpoint.rstrip("/")
+        token = self.secrets.get("hf_token")
+        if token:
+            env["HF_TOKEN"] = token
+        return env
+
+    def refresh_hub_env(self) -> None:
+        """改了下载源或令牌后，之后启动的模型进程使用新的设置（不用重启 App）。"""
+        self.workers.set_env(self.hub_env())
+
+    def music_python(self) -> str | None:
+        cmd = self.runtime.acestep_command
+        return cmd[0] if cmd else None
+
+    async def prepare_model(self, spec: catalog.ModelSpec) -> None:
+        """加载模型前确保已下载；在任务里执行时把下载进度显示在任务上。"""
+        from .core.tasks import CURRENT_TASK
+
+        ctx = CURRENT_TASK.get()
+
+        def note(job) -> None:
+            if ctx is None:
+                return
+            if job.state == "queued":
+                ctx.note(f"等待下载 {spec.name}")
+            elif job.total_bytes:
+                pct = int(job.done_bytes / job.total_bytes * 100)
+                ctx.note(f"下载 {spec.name} {pct}%（{job.done_bytes / 1024**3:.1f} / "
+                         f"{job.total_bytes / 1024**3:.1f} GB）")
+            else:
+                ctx.note(f"下载 {spec.name}")
+
+        await self.downloads.ensure(
+            spec, on_progress=note, check_cancelled=ctx.check_cancelled if ctx else None
+        )
 
     # ---------- 在线 API ----------
 
@@ -251,6 +297,7 @@ class EngineServices:
                 self.provider_ready(m.source) if m.worker == "cloud"
                 else self.workers.available(m.worker)
             )
+            item["download"] = None if m.worker == "cloud" else self.downloads.status(m.id)
             out.append(item)
         return out
 
@@ -281,17 +328,7 @@ def create_services(paths: DataPaths, runtime: RuntimePaths, token: str) -> Engi
     tasks = TaskQueue(db, events, paths.outputs)
     budget = MemoryBudget.detect(settings.get().memory_reserve_gb)
 
-    worker_env = {"HF_HOME": str(paths.hf_home)}
-    endpoint = settings.get().hf_endpoint
-    if endpoint:
-        worker_env["HF_ENDPOINT"] = endpoint
-    hf_token = secrets.get("hf_token")
-    if hf_token:
-        worker_env["HF_TOKEN"] = hf_token
-
-    workers = WorkerManager(
-        build_worker_specs(runtime, paths), logs_dir=paths.logs, token=token, env=worker_env
-    )
+    workers = WorkerManager(build_worker_specs(runtime, paths), logs_dir=paths.logs, token=token)
     scheduler = ModelScheduler(workers, budget.budget_gb)
     services = EngineServices(
         paths=paths,
@@ -309,8 +346,17 @@ def create_services(paths: DataPaths, runtime: RuntimePaths, token: str) -> Engi
         budget=budget,
         ffmpeg=FFmpeg(runtime.ffmpeg),
         cloud_voices=CloudVoiceStore(db),
+        downloads=None,  # type: ignore[arg-type]  # 下面创建，它要用到 services 的方法
     )
+    services.downloads = DownloadManager(
+        paths.hf_home,
+        hub_env=services.hub_env,
+        music_python=services.music_python,
+        publish=events.publish,
+    )
+    services.refresh_hub_env()
     scheduler.cloud_factory = services.make_cloud_handle
+    scheduler.prepare = services.prepare_model
     tasks.bind(services)
     from .workflows import register_all
 

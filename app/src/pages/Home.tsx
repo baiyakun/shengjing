@@ -1,8 +1,9 @@
 // 首页：所有应用、最近任务、本机状态
-import { ArrowRight, Cpu, ListChecks } from "lucide-react";
-import { useMemo } from "react";
-import { Badge, Card, Empty, StatusLabel, Tile } from "../components";
-import { useEngineState, useResource, type SystemInfo } from "../engine";
+import { ArrowRight, Cpu, HardDriveDownload, ListChecks } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Badge, Button, Card, Empty, StatusLabel, Tile } from "../components";
+import { KIND_SHORT, RecommendedDownloads, formatBytes, useMissingRecommended } from "../downloads";
+import { useEngineState, useResource, type ModelInfo, type SystemInfo } from "../engine";
 import { APPS, TASK_KINDS, useNavigate, type PageId } from "../nav";
 
 const SECTIONS: { title: string; apps: PageId[] }[] = [
@@ -35,6 +36,12 @@ export function Home() {
     [tasks],
   );
   const s = system.data;
+  const models = useResource<ModelInfo[]>("/catalog");
+  const { items } = useMissingRecommended(models.data);
+  const essential = items.filter((i) => i.essential);
+  const [picking, setPicking] = useState(false);
+  const size = essential.reduce(
+    (n, i) => n + (i.status.remote_bytes ?? i.model.memory_gb * 1024 ** 3), 0);
 
   return (
     <div className="page">
@@ -42,6 +49,21 @@ export function Home() {
         <h1>{greeting()}，想做点什么？</h1>
         <p>所有声音都在这台 Mac 上生成。也可以在设置里接入在线服务。</p>
       </div>
+
+      {essential.length > 0 && (
+        <div className="banner">
+          <span className="drop-icon"><HardDriveDownload size={18} /></span>
+          <div className="grow">
+            <b>先把常用模型下载好</b>
+            <p>
+              {`按这台 Mac 推荐的${essential.map((i) => KIND_SHORT[i.kind]).join("、")}模型还没下载`}
+              {`（约 ${formatBytes(size)}）。提前下载好，用的时候就不用等；不下载也行，第一次用到时会自动下载。`}
+            </p>
+          </div>
+          <Button variant="primary" onClick={() => setPicking(true)}>下载推荐模型</Button>
+        </div>
+      )}
+      {picking && <RecommendedDownloads models={models.data} onClose={() => setPicking(false)} />}
 
       {SECTIONS.map((section) => (
         <div key={section.title}>

@@ -412,6 +412,8 @@ export function modelMeta(m: ModelInfo): string {
   }
   const parts = [`约 ${m.memory_gb} GB`, COMMERCIAL_LABEL[m.commercial]];
   if (!m.fits) parts.push("本机内存不够");
+  if (m.download && m.download.state !== "ready" && !m.needs_conversion
+    && m.download.state !== "unmanaged") parts.push("未下载");
   if (m.needs_conversion) parts.push("需自行转换权重");
   if (!m.worker_installed) parts.push("扩展包未安装");
   return parts.join(" · ");

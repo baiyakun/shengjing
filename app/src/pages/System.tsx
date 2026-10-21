@@ -1,13 +1,20 @@
 // 系统页面：任务中心、模型管理、设置、关于与许可
-import { Cloud, Cpu, ExternalLink, HardDrive, ListChecks, Save } from "lucide-react";
+import {
+  Cloud, Cpu, ExternalLink, FolderOpen, HardDrive, HardDriveDownload, ListChecks, Save,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   Badge, Button, Card, Empty, Field, LicenseBadge, Page, Player, Segmented, StatusLabel,
   TaskProgress, Tile, Toggle,
 } from "../components";
 import {
-  useEngine, useEngineState, useResource, type ModelInfo, type SystemInfo, type Task,
+  inTauri, useEngine, useEngineState, useResource, type ModelInfo, type SystemInfo,
+  type Task,
 } from "../engine";
+import {
+  DownloadControl, HF_MIRROR, HF_OFFICIAL, RecommendedDownloads, formatBytes, useMissingRecommended,
+} from "../downloads";
+import { revealFile } from "../files";
 import { TASK_KINDS } from "../nav";
 import { DefaultModels, OnlineApis } from "./Providers";
 
@@ -88,27 +95,82 @@ function TaskRow({ task }: { task: Task }) {
 export function Models() {
   const models = useResource<ModelInfo[]>("/catalog");
   const system = useResource<SystemInfo>("/system");
-  const [scope, setScope] = useState<"all" | "local" | "cloud">("all");
+  const { items: missing, actions } = useMissingRecommended(models.data);
+  const [scope, setScope] = useState<"all" | "local" | "ready" | "cloud">("all");
+  const [picking, setPicking] = useState(false);
   const groups = useMemo(() => {
     const out: Record<string, ModelInfo[]> = {};
     for (const m of models.data ?? []) {
       if (scope === "local" && m.worker === "cloud") continue;
       if (scope === "cloud" && m.worker !== "cloud") continue;
+      if (scope === "ready" && actions.status(m.id)?.state !== "ready") continue;
       (out[m.kind] ??= []).push(m);
     }
     return KIND_ORDER.filter((k) => out[k]).map((k) => [k, out[k]] as const);
-  }, [models.data, scope]);
+  }, [models.data, scope, actions]);
   const s = system.data;
+  const o = actions.overview;
+  const readyCount = o ? Object.values(o.models).filter((m) => m.state === "ready").length : 0;
+  const active = (models.data ?? []).filter((m) => {
+    const job = actions.status(m.id)?.job;
+    return job && (job.state === "queued" || job.state === "running");
+  });
 
   return (
     <Page app="models" actions={
       <Segmented value={scope} onChange={setScope} options={[
         { value: "all", label: "全部" }, { value: "local", label: "本地", icon: HardDrive },
-        { value: "cloud", label: "在线", icon: Cloud },
+        { value: "ready", label: "已下载" }, { value: "cloud", label: "在线", icon: Cloud },
       ]} />
     }>
+      {o && (
+        <Card title="模型文件"
+          sub={`已下载 ${readyCount} 个，占用 ${formatBytes(o.used_bytes)} · 磁盘剩余 ${formatBytes(o.free_bytes)}`}
+          actions={
+            <Button variant={missing.length ? "primary" : "default"} icon={HardDriveDownload}
+              onClick={() => setPicking(true)}>
+              下载推荐模型{missing.length ? `（${missing.length}）` : ""}
+            </Button>
+          }>
+          <div className="kv">
+            <div>
+              <span>下载源</span>
+              <b>{o.endpoint === HF_MIRROR ? "国内镜像 hf-mirror.com"
+                : o.endpoint && o.endpoint !== HF_OFFICIAL ? o.endpoint : "Hugging Face 官方"}
+                <span className="faint" style={{ fontWeight: 400 }}> · 在设置 → 下载与生成里更改</span></b>
+            </div>
+            <div>
+              <span>存放位置</span>
+              <b className="path-line">
+                <span className="ellipsis" title={o.path}>{o.path}</span>
+                {inTauri && (
+                  <Button variant="ghost" size="sm" icon={FolderOpen} title="在访达中显示"
+                    onClick={() => revealFile(o.path)} />
+                )}
+              </b>
+            </div>
+          </div>
+          {active.length > 0 && (
+            <>
+              <div className="divider" />
+              <div className="section-title">正在下载</div>
+              {active.map((m) => (
+                <div key={m.id} className="active-dl">
+                  <span className="grow">{m.name}</span>
+                  <DownloadControl model={m} status={actions.status(m.id)} actions={actions} />
+                </div>
+              ))}
+            </>
+          )}
+          <p className="small muted" style={{ marginTop: 12 }}>
+            没下载的模型会在第一次用到时自动下载，进度显示在任务里；提前下载好就不用等，也可以离线使用。
+          </p>
+        </Card>
+      )}
+      {picking && <RecommendedDownloads models={models.data} onClose={() => setPicking(false)} />}
+
       {s && (
-        <div className="cols" style={{ marginBottom: 16 }}>
+        <div className="cols" style={{ marginBottom: 16, marginTop: 16 }}>
           <Card title="内存" sub={`${s.chip === "unknown" ? "Apple Silicon" : s.chip} · 共 ${s.memory_total_gb} GB`}>
             <div className="machine-head">
               <span className="muted">模型占用 / 可用</span>
@@ -177,7 +239,12 @@ export function Models() {
                 </div>
                 <div className="mem">
                   {m.worker === "cloud" ? <><b>—</b>不占内存</> : (
-                    <><b>{m.memory_gb} GB</b>{m.measured ? "实测" : "估算"}</>
+                    <><b>{m.memory_gb} GB</b>{m.measured ? "实测内存" : "估算内存"}</>
+                  )}
+                </div>
+                <div className="dl-cell">
+                  {m.worker !== "cloud" && (
+                    <DownloadControl model={m} status={actions.status(m.id)} actions={actions} />
                   )}
                 </div>
               </div>
@@ -319,10 +386,24 @@ export function Settings() {
       {tab === "general" && (
         <>
           <Card title="模型下载">
-            <Field label="下载源" hint="国内访问 Hugging Face 不稳定时填镜像站，例如 https://hf-mirror.com。修改后需要重启 App。">
-              <input value={s.hf_endpoint} placeholder="留空使用官方地址"
-                onChange={(e) => setS({ ...s, hf_endpoint: e.target.value })} />
+            <Field label="下载源" hint="国内访问 Hugging Face 慢或连不上时选镜像站。保存后马上生效">
+              <Segmented block
+                value={s.hf_endpoint === HF_OFFICIAL ? "official"
+                  : s.hf_endpoint.replace(/\/$/, "") === HF_MIRROR ? "mirror" : "custom"}
+                onChange={(v) => setS({ ...s, hf_endpoint: v === "official" ? HF_OFFICIAL
+                  : v === "mirror" ? HF_MIRROR : (s.hf_endpoint || "https://") })}
+                options={[
+                  { value: "official", label: "Hugging Face 官方" },
+                  { value: "mirror", label: "国内镜像 hf-mirror.com" },
+                  { value: "custom", label: "自定义" },
+                ]} />
             </Field>
+            {s.hf_endpoint !== HF_OFFICIAL && s.hf_endpoint.replace(/\/$/, "") !== HF_MIRROR && (
+              <Field label="自定义下载源地址">
+                <input value={s.hf_endpoint} placeholder="https://"
+                  onChange={(e) => setS({ ...s, hf_endpoint: e.target.value })} />
+              </Field>
+            )}
             <Field label="Hugging Face 访问令牌"
               hint={remote.data?.secrets.hf_token ? "已保存，留空不修改"
                 : "本地说话人区分模型需要先在其页面同意使用条款，再填写令牌"}>
@@ -381,7 +462,7 @@ export function Settings() {
 const FRAMEWORKS = [
   ["Tauri", "MIT / Apache-2.0"], ["React", "MIT"], ["Vite", "MIT"], ["Lucide 图标", "ISC"],
   ["MLX", "MIT"], ["mlx-speech", "MIT"], ["mlx-lm", "MIT"], ["FastAPI", "MIT"],
-  ["Uvicorn", "BSD-3-Clause"], ["websockets", "BSD-3-Clause"], ["msgpack", "Apache-2.0"],
+  ["Uvicorn", "BSD-3-Clause"], ["huggingface_hub", "Apache-2.0"], ["websockets", "BSD-3-Clause"], ["msgpack", "Apache-2.0"],
   ["PyTorch", "BSD-3-Clause"], ["pyannote.audio", "MIT"], ["Demucs", "MIT"],
   ["ACE-Step 1.5", "MIT"], ["FFmpeg（LGPL 构建）", "LGPL-2.1+"],
 ];

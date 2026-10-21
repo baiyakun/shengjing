@@ -286,6 +286,11 @@ class WorkerManager:
     def available(self, name: str) -> bool:
         return self.specs[name].command is not None
 
+    def set_env(self, env: dict[str, str]) -> None:
+        """之后启动的进程使用的环境变量（已经在运行的进程不受影响）。"""
+        self._env.clear()
+        self._env.update(env)
+
     def get(self, name: str) -> WorkerProcess | None:
         proc = self._procs.get(name)
         return proc if proc is not None and proc.alive else None

@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -61,6 +61,8 @@ class ModelScheduler:
         self._source_overrides = source_overrides or {}
         self.cloud_factory: Callable[[catalog.ModelSpec], Any] | None = None
         """由 services 注入：根据模型目录里的在线条目创建 CloudHandle。"""
+        self.prepare: Callable[[catalog.ModelSpec], Awaitable[None]] | None = None
+        """由 services 注入：加载前确保模型文件已下载（下载期间不占用调度锁）。"""
         manager.on_exit = self._on_worker_exit
 
     def _on_worker_exit(self, name: str) -> None:
@@ -78,6 +80,8 @@ class ModelScheduler:
                 raise WorkerError("在线 API 没有配置")
             yield self.cloud_factory(spec)
             return
+        if self.prepare is not None:
+            await self.prepare(spec)
         async with self._lock:
             actions = self.planner.plan(spec.worker, model_id, spec.memory_gb)
             for action in actions:

@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.8",
     "numpy>=2.0",
     "keyring>=25",
+    "huggingface-hub>=1.8,<2",
 ]
 
 [project.scripts]

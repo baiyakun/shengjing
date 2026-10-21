@@ -4,7 +4,8 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge, Button, Card, Field, ModelSelect } from "../components";
-import { useEngine, useResource, type ModelInfo, type SystemInfo } from "../engine";
+import { DownloadControl } from "../downloads";
+import { useDownloads, useEngine, useResource, type ModelInfo, type SystemInfo } from "../engine";
 
 interface ProviderOption { key: string; label: string; default: string; hint: string }
 
@@ -150,6 +151,7 @@ export function DefaultModels({ overrides, onChange, models, system }: {
   system: SystemInfo | null;
 }) {
   const recs = system?.recommendations ?? {};
+  const downloads = useDownloads();
   const name = (id: string | null | undefined) => models?.find((m) => m.id === id)?.name ?? id ?? "";
   const customized = DEFAULT_KINDS.some(({ kind }) => overrides[kind]);
   return (
@@ -173,6 +175,8 @@ export function DefaultModels({ overrides, onChange, models, system }: {
         const rec = recs[kind];
         const chosen = overrides[kind] ?? "";
         const custom = chosen && chosen !== rec?.model;
+        const effective = models?.find((m) => m.id === (chosen || rec?.model));
+        const dl = effective && effective.worker !== "cloud" ? downloads.status(effective.id) : undefined;
         return (
           <div key={kind} className="setting">
             <div className="grow">
@@ -191,6 +195,11 @@ export function DefaultModels({ overrides, onChange, models, system }: {
                       }}>改回推荐</button></>
                     )}
                   </span>
+                </div>
+              )}
+              {effective && dl && dl.state !== "unmanaged" && (
+                <div className="rec-dl">
+                  <DownloadControl model={effective} status={dl} actions={downloads} compact />
                 </div>
               )}
             </div>

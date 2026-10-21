@@ -22,7 +22,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import __version__
+from ..core import catalog
 from ..core.db import new_id
+from ..core.downloads import DownloadError
 from ..core.extensions import EXTENSIONS
 from ..core.extensions import installed as installed_extensions
 from ..core.settings import SECRET_NAMES
@@ -94,6 +96,7 @@ def create_app(services: EngineServices, *, run_background: bool = True) -> Fast
             log.info("re-queued %s interrupted tasks", recovered)
         if run_background:
             background.append(asyncio.create_task(services.tasks.run_forever()))
+            background.append(asyncio.create_task(services.downloads.run_forever()))
             background.append(asyncio.create_task(_idle_reaper(services)))
         try:
             yield
@@ -103,6 +106,7 @@ def create_app(services: EngineServices, *, run_background: bool = True) -> Fast
             for t in background:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await t
+            await services.downloads.shutdown()
             await services.workers.stop_all()
 
     app = FastAPI(title="声境引擎", version=__version__, lifespan=lifespan)
@@ -196,6 +200,7 @@ def create_app(services: EngineServices, *, run_background: bool = True) -> Fast
             services.settings.update(patch)
         except ValidationError as exc:
             raise HTTPException(422, str(exc)) from exc
+        services.refresh_hub_env()
         return get_settings()
 
     @app.put("/secrets/{name}", dependencies=auth)
@@ -203,7 +208,51 @@ def create_app(services: EngineServices, *, run_background: bool = True) -> Fast
         if name not in SECRET_NAMES:
             raise HTTPException(404, "未知密钥")
         services.secrets.set(name, body.value)
+        services.refresh_hub_env()
         return {name: services.secrets.has(name)}
+
+    # ---------- 模型下载 ----------
+
+    @app.get("/downloads", dependencies=auth)
+    async def downloads_overview() -> dict[str, Any]:
+        # 顺便在后台更新各模型的下载大小（一天查一次）
+        services.downloads.refresh_sizes()
+        return services.downloads.overview()
+
+    @app.post("/downloads/sizes/refresh", dependencies=auth)
+    async def downloads_refresh_sizes() -> dict[str, bool]:
+        return {"started": services.downloads.refresh_sizes(max_age=0)}
+
+    @app.post("/downloads/{model_id}", dependencies=auth)
+    async def download_start(model_id: str) -> dict[str, Any]:
+        _known_model(model_id)
+        try:
+            return services.downloads.start(model_id).to_dict()
+        except DownloadError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/downloads/{model_id}/cancel", dependencies=auth)
+    async def download_cancel(model_id: str) -> dict[str, Any]:
+        _known_model(model_id)
+        try:
+            return services.downloads.cancel(model_id).to_dict()
+        except DownloadError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.delete("/downloads/{model_id}", dependencies=auth)
+    async def download_delete(model_id: str) -> dict[str, Any]:
+        _known_model(model_id)
+        try:
+            services.downloads.delete(model_id)
+        except DownloadError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return services.downloads.status(model_id)
+
+    def _known_model(model_id: str) -> None:
+        try:
+            catalog.get(model_id)
+        except KeyError as exc:
+            raise HTTPException(404, "没有这个模型") from exc
 
     # ---------- 任务 ----------
 
