@@ -13,7 +13,7 @@ class FakeLLM:
     def __init__(self, reply: dict):
         self.reply = reply
 
-    async def chat(self, messages, *, temperature=0.7, max_tokens=4096):
+    async def chat(self, messages, *, temperature=0.7, max_tokens=4096, json_output=False):
         return "<think>…</think>" + json.dumps(self.reply, ensure_ascii=False)
 
 

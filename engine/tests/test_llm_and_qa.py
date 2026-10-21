@@ -25,7 +25,7 @@ class ScriptedLLM:
         self.replies = list(replies)
         self.seen = []
 
-    async def chat(self, messages, *, temperature=0.7, max_tokens=4096):
+    async def chat(self, messages, *, temperature=0.7, max_tokens=4096, json_output=False):
         self.seen.append(messages)
         return self.replies.pop(0)
 

@@ -318,7 +318,14 @@ OpenMOSS、美团 LongCat、微软、Resemble AI、Google、BreezeBlue、阶跃�
 | Qwen3.5 9B（4bit） | 24–48 GB 机器推荐 | Apache-2.0 | ✅ | ~8 GB | https://huggingface.co/mlx-community/Qwen3.5-9B-4bit |
 | Qwen3.6 35B-A3B（4bit） | 64 GB 以上机器推荐 | Apache-2.0 | ✅ | ~24 GB | https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-4bit |
 
-也可以在设置里改用任意 OpenAI 兼容的云端接口，此时适用该服务自己的条款。
+也可以在设置 → LLM 里改用云端接口，此时适用该服务自己的条款：
+
+- **DeepSeek**：一键填好接口地址，选 DeepSeek Flash（快、便宜）或 DeepSeek V4 Pro（更强），
+  可以打开“深度思考”。引擎会按 DeepSeek 的接口调整请求：默认关闭思考（更快更省），
+  打开时给思考留足输出长度；生成剧本、纪要时使用 JSON 输出模式；空回复自动重试；
+  限流、服务器繁忙时自动重试；余额不足、Key 不对等错误直接给出中文说明。
+- **其他 OpenAI 兼容接口**：通义千问、Kimi、硅基流动、OpenAI 等，填接口地址、模型名和 API Key。
+- 设置页可以先“测试连接”再保存。
 
 ### 分析扩展包（分析进程，通过 PyTorch 运行）
 

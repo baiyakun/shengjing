@@ -16,6 +16,7 @@ import {
 } from "../downloads";
 import { revealFile } from "../files";
 import { TASK_KINDS, openSettingsTab, takeSettingsTab, useNavigate } from "../nav";
+import { CloudLLMFields } from "./LLMSettings";
 import { DefaultModels, OnlineApis } from "./Providers";
 
 const KIND_LABEL: Record<string, string> = {
@@ -285,7 +286,7 @@ interface SettingsShape {
   edition: "personal" | "commercial";
   model_overrides: Record<string, string>;
   llm: { provider: "local" | "cloud"; local_model: string | null; cloud_base_url: string;
-    cloud_model: string; temperature: number };
+    cloud_model: string; cloud_thinking: boolean; temperature: number };
   hf_endpoint: string;
   idle_timeout_s: number;
   qa_enabled: boolean;
@@ -391,22 +392,8 @@ export function Settings() {
                 </select>
               </Field>
             ) : (
-              <>
-                <Field label="接口地址" hint="任意 OpenAI 兼容的对话接口，例如 https://api.deepseek.com/v1">
-                  <input value={s.llm.cloud_base_url}
-                    onChange={(e) => setS({ ...s, llm: { ...s.llm, cloud_base_url: e.target.value } })} />
-                </Field>
-                <div className="fields">
-                  <Field label="模型名">
-                    <input value={s.llm.cloud_model}
-                      onChange={(e) => setS({ ...s, llm: { ...s.llm, cloud_model: e.target.value } })} />
-                  </Field>
-                  <Field label="API Key"
-                    hint={remote.data?.secrets.llm_api_key ? "已保存在钥匙串，留空不修改" : "保存在系统钥匙串"}>
-                    <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-                  </Field>
-                </div>
-              </>
+              <CloudLLMFields value={s.llm} onChange={(llm) => setS({ ...s, llm: { ...s.llm, ...llm } })}
+                apiKey={apiKey} setApiKey={setApiKey} keySaved={Boolean(remote.data?.secrets.llm_api_key)} />
             )}
           </Card>
           {saveBar}

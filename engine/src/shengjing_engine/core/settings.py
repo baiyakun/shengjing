@@ -27,8 +27,10 @@ class LLMSettings(BaseModel):
     local_model: str | None = None
     """None 表示按机器内存自动选择。"""
     cloud_base_url: str = ""
-    """任何 OpenAI 兼容接口，例如 https://api.deepseek.com/v1"""
+    """任何 OpenAI 兼容接口，例如 https://api.deepseek.com"""
     cloud_model: str = ""
+    cloud_thinking: bool = False
+    """深度思考（DeepSeek 等支持的服务）：先思考再回答，更稳但更慢、费用更高。"""
     temperature: float = 0.7
 
 

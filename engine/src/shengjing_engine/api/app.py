@@ -75,6 +75,15 @@ class ProjectPatch(BaseModel):
     script: dict[str, Any] | None = None
 
 
+class LLMTestIn(BaseModel):
+    """测试连接时用界面上还没保存的值；没传的用已保存的设置。"""
+
+    base_url: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    thinking: bool | None = None
+
+
 class SecretIn(BaseModel):
     value: str | None = None
 
@@ -210,6 +219,12 @@ def create_app(services: EngineServices, *, run_background: bool = True) -> Fast
         services.secrets.set(name, body.value)
         services.refresh_hub_env()
         return {name: services.secrets.has(name)}
+
+    # ---------- LLM ----------
+
+    @app.post("/llm/test", dependencies=auth)
+    async def llm_test(body: LLMTestIn) -> dict[str, Any]:
+        return await services.test_llm(**body.model_dump(exclude_none=True))
 
     # ---------- 模型下载 ----------
 

@@ -18,7 +18,7 @@ from .core.scheduler import ModelScheduler
 from .core.settings import SecretStore, SettingsStore
 from .core.tasks import TaskQueue, UserFacingError
 from .core.workers import WorkerManager, WorkerSpec
-from .orchestration.llm import ChatClient, OpenAICompatClient
+from .orchestration.llm import ChatClient, LLMError, OpenAICompatClient
 from .providers import PROVIDERS, CloudHandle, ProviderContext
 
 log = logging.getLogger(__name__)
@@ -119,6 +119,8 @@ class EngineServices:
     downloads: DownloadManager
     local: LocalSupport = field(default_factory=local_support)
     """这台机器能不能运行本地模型（Intel 芯片的 Mac 只能用在线 API）。"""
+    llm_transport: Any = None
+    """测试用：替换云端 LLM 的网络请求。"""
 
     # ---------- 模型选择 ----------
 
@@ -286,15 +288,43 @@ class EngineServices:
             return f"云端 · {model}" if model else "云端（还没设置）"
         return self.llm_model_id()
 
-    def chat_client_for_cloud(self) -> ChatClient:
-        settings = self.settings.get()
-        if not settings.llm.cloud_base_url or not settings.llm.cloud_model:
-            raise UserFacingError("请先在设置里填写云端 LLM 的接口地址和模型名")
+    def chat_client_for_cloud(
+        self,
+        *,
+        base_url: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        thinking: bool | None = None,
+    ) -> ChatClient:
+        """云端 LLM 客户端；参数留空时用设置里保存的值（测试连接时会传入还没保存的值）。"""
+        llm = self.settings.get().llm
+        base_url = (base_url if base_url is not None else llm.cloud_base_url).strip()
+        model = (model if model is not None else llm.cloud_model).strip()
+        if not base_url or not model:
+            raise UserFacingError("请先在设置 → LLM 里填写云端 LLM 的接口地址和模型名")
         return OpenAICompatClient(
-            base_url=settings.llm.cloud_base_url,
-            model=settings.llm.cloud_model,
-            api_key=self.secrets.get("llm_api_key"),
+            base_url=base_url,
+            model=model,
+            api_key=api_key or self.secrets.get("llm_api_key"),
+            thinking=llm.cloud_thinking if thinking is None else thinking,
+            transport=self.llm_transport,
         )
+
+    async def test_llm(self, **overrides: Any) -> dict[str, Any]:
+        """用一句很短的对话检查云端 LLM 设置是否可用。"""
+        import time
+
+        try:
+            client = self.chat_client_for_cloud(**overrides)
+            started = time.monotonic()
+            reply = await client.chat(
+                [{"role": "user", "content": "请只回复两个字：你好"}], temperature=0, max_tokens=16
+            )
+        except (UserFacingError, LLMError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "reply": reply.strip()[:100],
+                "seconds": round(time.monotonic() - started, 1),
+                "model": client.model}
 
     def refresh_runtime(self) -> None:
         """安装扩展包后重新检测运行环境，更新未运行进程的启动方式（不用重启引擎）。"""
