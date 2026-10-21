@@ -114,6 +114,11 @@ scripts/dev_setup_analysis.sh   # 分析环境（说话人区分、时间戳、�
 scripts/dev_install_acestep.sh  # 音乐环境（ACE-Step 1.5）
 ```
 
+**不影响本机已有的 Python**：脚本只在项目的 `.dev/` 目录里建立独立环境，使用 uv 自己下载管理的
+Python 3.13（存在 `~/.local/share/uv/python`），不修改系统、Homebrew、pyenv 或 conda 的 Python，
+也不改 PATH。测试时 `uv run` 会在各子项目下建 `.venv`，同样是独立的。
+要彻底清理：删除项目的 `.dev/` 和各个 `.venv/`；模型文件在下面的数据目录里，可以单独删除。
+
 模型在第一次使用时从 Hugging Face 下载到 `~/Library/Application Support/dev.shengjing.desktop/models`。
 国内网络可以在设置里填写镜像站作为下载源。
 

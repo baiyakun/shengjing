@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VENV="$ROOT/.dev/analysis-venv"
 
-uv venv --python 3.13 "$VENV"
+# --managed-python：用 uv 自己下载管理的 Python，不依赖、也不改动本机已有的 Python
+# --allow-existing：环境已存在时直接复用，重复执行本脚本可以更新依赖
+uv venv --managed-python --allow-existing --python 3.13 "$VENV"
 uv pip install --python "$VENV/bin/python" \
   -e "$ROOT/workers/worker-kit" \
   -e "$ROOT/workers/analysis"
