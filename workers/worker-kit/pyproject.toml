@@ -1,6 +1,7 @@
 [project]
 name = "shengjing-worker-kit"
 version = "0.1.0"
+license = "MIT"
 description = "声境模型进程的公共协议：启动握手、令牌校验、加载/卸载/运行接口"
 requires-python = ">=3.11"
 dependencies = [

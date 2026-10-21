@@ -1,6 +1,7 @@
 [project]
 name = "shengjing-speech-worker"
 version = "0.1.0"
+license = "MIT"
 description = "声境语音进程：用 mlx-speech 在 Apple Silicon 上跑 TTS、ASR、音效、录音编辑"
 requires-python = ">=3.13"
 dependencies = [

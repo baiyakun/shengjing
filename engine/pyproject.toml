@@ -1,6 +1,7 @@
 [project]
 name = "shengjing-engine"
 version = "0.1.0"
+license = "MIT"
 description = "声境主引擎：任务调度、模型进程管理、LLM 编排、混音导出"
 requires-python = ">=3.13"
 dependencies = [

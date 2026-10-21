@@ -278,6 +278,7 @@ export function About() {
     <Page title="关于与许可" subtitle="声境使用的开源框架和模型，以及它们的许可要求。">
       <Section title="必要声明">
         <ul>
+          <li>声境本身的代码使用 MIT 许可证（Copyright © 2026 baiyakun）。模型权重和依赖库按各自许可证使用。</li>
           {fish && (
             <li>
               Built with Fish Audio。Fish S2 Pro 和 Drama 3 依据 Fish Audio Research License
