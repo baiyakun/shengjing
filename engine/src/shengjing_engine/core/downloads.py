@@ -105,9 +105,10 @@ JobState = Literal["queued", "running", "done", "failed", "cancelled"]
 
 def mlx_speech_mismatches() -> list[str]:
     """和 mlx-speech 自己的模型表对一遍（只能在装了 mlx-speech 的 Mac 上运行，CI 里会跑）。"""
-    from mlx_speech import _hub, asr, tts
+    from mlx_speech import _hub
 
-    table = {**tts.list_models(detailed=True), **asr.list_models(detailed=True)}
+    # asr.list_models() 没有 detailed 参数，直接用底层的完整模型表
+    table = _hub.list_models(detailed=True)
     problems = []
     for spec in catalog.all_models():
         if spec.worker != "speech" or spec.id not in ARTIFACTS:
