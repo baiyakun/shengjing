@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# 开发环境和打包产物
+.dev/
+packaging/build/
+packaging/vendor/
+
+# 前端
+app/node_modules/
+app/dist/
+
+# Tauri / Rust
+app/src-tauri/target/
+app/src-tauri/gen/schemas/
+
+# macOS
+.DS_Store

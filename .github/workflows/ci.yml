@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    name: 引擎和模型进程（Linux）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.0
+      - name: 安装 ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: 主引擎
+        working-directory: engine
+        run: |
+          uv run ruff check .
+          uv run pytest -q
+      - name: 模型进程公共协议
+        working-directory: workers/worker-kit
+        run: |
+          uv run ruff check .
+          uv run pytest -q
+      - name: 语音进程（用假的 mlx_speech 测试适配逻辑）
+        working-directory: workers/speech
+        run: |
+          uv run ruff check .
+          uv run pytest -q
+      - name: 分析进程（不装 PyTorch 的部分）
+        working-directory: workers/analysis
+        run: |
+          uvx ruff check --config pyproject.toml .
+          PYTHONPATH=src:../worker-kit/src uv run --isolated --no-project \
+            --with pytest --with fastapi --with uvicorn --with numpy python -m pytest -q tests
+
+  app:
+    name: 界面和外壳（macOS）
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: 安装 pnpm
+        run: npm install -g pnpm@10
+      - name: 构建界面
+        working-directory: app
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: 外壳测试
+        working-directory: app/src-tauri
+        run: cargo test
+
+  mlx:
+    name: mlx-speech 能否在 Apple Silicon 上安装导入
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.0
+      - name: 建立基础环境并导入
+        run: |
+          uv venv --python 3.13 .venv-base
+          uv pip install --python .venv-base/bin/python -e engine -e workers/worker-kit \
+            -e workers/speech "mlx-lm>=0.32"
+          .venv-base/bin/python -c "import mlx_speech, mlx_lm, shengjing_speech_worker, shengjing_engine; print(mlx_speech.__version__)"

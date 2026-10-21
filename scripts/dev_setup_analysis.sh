@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# 建立分析扩展包的开发环境 .dev/analysis-venv（PyTorch、pyannote、Qwen3-ForcedAligner、Demucs）。
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VENV="$ROOT/.dev/analysis-venv"
+
+uv venv --python 3.13 "$VENV"
+uv pip install --python "$VENV/bin/python" \
+  -e "$ROOT/workers/worker-kit" \
+  -e "$ROOT/workers/analysis"
+
+echo "分析环境已就绪：$VENV"
+echo "说话人区分需要先在 https://huggingface.co/pyannote/speaker-diarization-community-1 同意使用条款，"
+echo "再在 App 的设置里填写 Hugging Face 访问令牌。"
