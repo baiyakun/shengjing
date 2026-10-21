@@ -22,6 +22,10 @@ from .providers import PROVIDERS, CloudHandle, ProviderContext
 log = logging.getLogger(__name__)
 
 
+# 启动时就要下载模型的服务（mlx-lm、ACE-Step）允许的最长启动时间
+MODEL_DOWNLOAD_TIMEOUT = 3600.0
+
+
 def build_worker_specs(runtime: RuntimePaths, paths: DataPaths) -> list[WorkerSpec]:
     """四类模型进程的启动方式。"""
     base = runtime.base_python
@@ -58,6 +62,8 @@ def build_worker_specs(runtime: RuntimePaths, paths: DataPaths) -> list[WorkerSp
             command=mlx_lm,
             single_model=True,
             health_path="/v1/models",
+            # mlx-lm 启动时先下载并加载模型才开始监听，首次可能要下载十几 GB
+            startup_timeout=MODEL_DOWNLOAD_TIMEOUT,
         ),
         WorkerSpec(
             name="analysis",
@@ -71,6 +77,7 @@ def build_worker_specs(runtime: RuntimePaths, paths: DataPaths) -> list[WorkerSp
             command=music_cmd,
             single_model=True,
             health_path="/health",
+            startup_timeout=MODEL_DOWNLOAD_TIMEOUT,
             unavailable_reason="音乐扩展包未安装（ACE-Step）",
             env={"ACESTEP_API_HOST": "127.0.0.1"},
             port_env="ACESTEP_API_PORT",
