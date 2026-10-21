@@ -19,8 +19,7 @@ from ..services import EngineServices
 @contextlib.asynccontextmanager
 async def llm_session(services: EngineServices) -> AsyncIterator[ChatClient]:
     """按设置使用本地 LLM（mlx-lm 进程）或云端 LLM。"""
-    settings = services.settings.get()
-    if settings.llm.provider == "cloud":
+    if services.llm_provider() == "cloud":
         yield services.chat_client_for_cloud()
         return
     model_id = services.llm_model_id()

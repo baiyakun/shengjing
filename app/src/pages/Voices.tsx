@@ -167,7 +167,7 @@ export function Voices() {
           <Field label="模型">
             <ModelSelect models={models.data} kinds={["tts"]} value={testModel} onChange={setTestModel} />
           </Field>
-          <FitWarning model={resolveModel(models.data, ["tts"], testModel)} />
+          <FitWarning model={resolveModel(models.data, ["tts"], testModel)} models={models.data} />
           <Field label="文字">
             <textarea rows={4} value={testText} onChange={(e) => setTestText(e.target.value)} />
           </Field>

@@ -50,7 +50,7 @@ export function Music() {
           <Field label="模型">
             <ModelSelect models={models.data} kinds={["music"]} value={model} onChange={setModel} />
           </Field>
-          {installed !== false && <FitWarning model={current} />}
+          {installed !== false && <FitWarning model={current} models={models.data} />}
           <Field label="创作方式">
             <Segmented value={mode} onChange={setMode} block options={[
               { value: "theme", label: "给个主题" },

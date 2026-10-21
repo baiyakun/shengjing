@@ -52,6 +52,29 @@ jobs:
         working-directory: app/src-tauri
         run: cargo test
 
+  intel:
+    name: Intel Mac（只能使用在线 API）
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.0
+      - name: 安装 ffmpeg 和 pnpm
+        run: |
+          brew install ffmpeg
+          npm install -g pnpm@11
+      - name: 主引擎测试
+        working-directory: engine
+        run: uv run pytest -q
+      - name: 启动真实的主引擎，确认进入在线模式
+        working-directory: engine
+        run: uv run python ../scripts/check_online_mode.py
+      - name: 构建界面和外壳（x86_64）
+        working-directory: app
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          cd src-tauri && cargo test
+
   mlx:
     name: mlx-speech 能否在 Apple Silicon 上安装导入
     runs-on: macos-latest

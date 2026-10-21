@@ -57,7 +57,7 @@ export function Meeting() {
               onChange={(e) => setSpeakers(e.target.value)} />
           </Field>
         </div>
-        <FitWarning model={asr} />
+        <FitWarning model={asr} models={models.data} />
         <Toggle checked={diarize && canDiarize} disabled={!canDiarize} onChange={setDiarize}
           label="区分发言人"
           hint={canDiarize ? "转写稿和纪要里会标出每句话是谁说的"

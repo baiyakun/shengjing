@@ -4,6 +4,10 @@ set -euo pipefail
 # 所有环境都用 uv 管理的 Python，不依赖本机已有的 Python
 export UV_MANAGED_PYTHON=1
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" != "arm64" ]]; then
+  echo "这是 Intel 芯片的 Mac，不能在本机运行模型，不需要安装扩展包。请在 App 里使用在线 API。"
+  exit 1
+fi
 DEST="$ROOT/.dev/ACE-Step-1.5"
 # 固定到一个验证过的版本（第 0 阶段确定后填写具体提交）
 REF="${ACESTEP_REF:-main}"

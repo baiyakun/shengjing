@@ -79,6 +79,8 @@ class Machine:
     budget_gb: float
     """留给模型的内存。"""
     chip: str = "unknown"
+    local_supported: bool = True
+    """Intel 芯片的 Mac 为 False：不能运行本地模型，只能用在线服务。"""
 
     @property
     def chip_class(self) -> str | None:
@@ -173,9 +175,12 @@ def _pick(
 ) -> Recommendation:
     label = KIND_LABEL.get(kind, kind)
     budget = machine.budget_gb
-    local = _candidates(kind, edition, machine)
     cloud = _cloud(kind, edition, provider_ready)
 
+    if not machine.local_supported:
+        return _pick_online_only(kind, edition, cloud)
+
+    local = _candidates(kind, edition, machine)
     if not local:
         if cloud:
             return Recommendation(kind, cloud.id, f"没有本地{label}模型，用已连接的在线服务", True)
@@ -228,6 +233,29 @@ def _pick(
     if not worker_ready(chosen.worker):
         parts.append(f"需要先安装{EXTENSION_LABEL.get(chosen.worker, chosen.worker)}")
     return Recommendation(kind, chosen.id, "；".join(parts), True)
+
+
+def _pick_online_only(kind: str, edition: catalog.Edition, cloud) -> Recommendation:
+    """不能运行本地模型的 Mac：只能用已连接的在线服务。"""
+    label = KIND_LABEL.get(kind, kind)
+    if kind == "llm":
+        return Recommendation("llm", None, "不能运行本地 LLM，请在设置 → LLM 里改用云端接口", False)
+    if cloud:
+        return Recommendation(kind, cloud.id, f"只能使用在线服务，用已连接的 {cloud.name}", True)
+    providers = sorted({PROVIDER_NAMES.get(m.source, m.source) for m in catalog.all_models()
+                        if m.kind == kind and m.worker == "cloud" and m.allowed_in(edition)})
+    if providers:
+        return Recommendation(
+            kind, None,
+            f"只能使用在线服务，请先在设置 → 在线 API 里连接 {' / '.join(providers)}", False)
+    return Recommendation(kind, None, f"{label}目前没有在线服务可用，需要 Apple 芯片的 Mac", False)
+
+
+# 只用来写提示，避免 core 依赖 providers 包
+PROVIDER_NAMES = {
+    "openai": "OpenAI 兼容接口", "senseaudio": "SenseAudio", "fish_audio": "Fish Audio",
+    "elevenlabs": "ElevenLabs",
+}
 
 
 def _pick_llm(local: list[catalog.ModelSpec], machine: Machine) -> Recommendation:

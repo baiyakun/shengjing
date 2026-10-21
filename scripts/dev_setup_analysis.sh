@@ -2,6 +2,10 @@
 # 建立分析扩展包的开发环境 .dev/analysis-venv（PyTorch、pyannote、Qwen3-ForcedAligner、Demucs）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" != "arm64" ]]; then
+  echo "这是 Intel 芯片的 Mac，不能在本机运行模型，不需要安装扩展包。请在 App 里使用在线 API。"
+  exit 1
+fi
 VENV="$ROOT/.dev/analysis-venv"
 
 # --managed-python：用 uv 自己下载管理的 Python，不依赖、也不改动本机已有的 Python

@@ -241,7 +241,7 @@ export function Studio({ style }: { style: "audiobook" | "podcast" }) {
                 <Segmented value={format} options={FORMATS} onChange={setFormat} block />
               </Field>
             </div>
-            <FitWarning model={resolveModel(models.data, dialogue ? ["dialogue"] : ["tts"], model)} />
+            <FitWarning model={resolveModel(models.data, dialogue ? ["dialogue"] : ["tts"], model)} models={models.data} />
             <Toggle checked={qa} onChange={setQa} label="质检回听"
               hint="生成后转写回文字和原稿比对，吞字、错字的句子自动重做" />
             <Toggle checked={dialogue} onChange={(v) => { setDialogue(v); setModel(""); }}

@@ -1,10 +1,10 @@
 // 首页：所有应用、最近任务、本机状态
-import { ArrowRight, Cpu, HardDriveDownload, ListChecks } from "lucide-react";
+import { ArrowRight, Cloud, Cpu, HardDriveDownload, ListChecks } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Badge, Button, Card, Empty, StatusLabel, Tile } from "../components";
 import { KIND_SHORT, RecommendedDownloads, formatBytes, useMissingRecommended } from "../downloads";
 import { useEngineState, useResource, type ModelInfo, type SystemInfo } from "../engine";
-import { APPS, TASK_KINDS, useNavigate, type PageId } from "../nav";
+import { APPS, TASK_KINDS, openSettingsTab, useNavigate, type PageId } from "../nav";
 
 const SECTIONS: { title: string; apps: PageId[] }[] = [
   { title: "创作", apps: ["audiobook", "podcast", "music", "sfx"] },
@@ -40,6 +40,9 @@ export function Home() {
   const { items } = useMissingRecommended(models.data);
   const essential = items.filter((i) => i.essential);
   const [picking, setPicking] = useState(false);
+  const providers = useResource<{ id: string; ready: boolean }[]>("/providers");
+  const onlineOnly = s?.local.supported === false;
+  const connected = (providers.data ?? []).filter((p) => p.ready).length;
   const size = essential.reduce(
     (n, i) => n + (i.status.remote_bytes ?? i.model.memory_gb * 1024 ** 3), 0);
 
@@ -47,8 +50,27 @@ export function Home() {
     <div className="page">
       <div className="hero">
         <h1>{greeting()}，想做点什么？</h1>
-        <p>所有声音都在这台 Mac 上生成。也可以在设置里接入在线服务。</p>
+        <p>
+          {s?.local.supported === false ? "声音通过在线服务生成，作品和音色都保存在这台 Mac 上。"
+            : "所有声音都在这台 Mac 上生成。也可以在设置里接入在线服务。"}
+        </p>
       </div>
+
+      {onlineOnly && connected === 0 && (
+        <div className="banner">
+          <span className="drop-icon"><Cloud size={18} /></span>
+          <div className="grow">
+            <b>先连接一个在线服务</b>
+            <p>
+              {s?.local.reason}。朗读、克隆、转写、音效、音乐都可以用在线服务完成，
+              填好 API Key 就能开始；写剧本和纪要还需要在设置 → LLM 里填写云端接口。
+            </p>
+          </div>
+          <Button variant="primary" onClick={() => { openSettingsTab("online"); go("settings"); }}>
+            连接在线服务
+          </Button>
+        </div>
+      )}
 
       {essential.length > 0 && (
         <div className="banner">
@@ -78,6 +100,7 @@ export function Home() {
                     <b>
                       {meta.label}
                       {meta.planned && <Badge>开发中</Badge>}
+                      {onlineOnly && meta.localOnly && <Badge>需 M 芯片</Badge>}
                     </b>
                     <p>{meta.desc}</p>
                   </div>
@@ -130,19 +153,28 @@ export function Home() {
               <div className="row-item" style={{ paddingTop: 0 }}>
                 <span className="drop-icon"><Cpu size={18} /></span>
                 <div className="grow">
-                  <div className="title">{s.chip === "unknown" ? "Apple Silicon" : s.chip}</div>
+                  <div className="title">{s.chip === "unknown" ? (onlineOnly ? "Mac" : "Apple Silicon") : s.chip}</div>
                   <div className="meta">
-                    内存 {s.memory_total_gb} GB · 模型可用 {s.memory_budget_gb} GB
+                    {onlineOnly ? `内存 ${s.memory_total_gb} GB · 只能使用在线服务`
+                      : `内存 ${s.memory_total_gb} GB · 模型可用 ${s.memory_budget_gb} GB`}
                   </div>
                 </div>
               </div>
-              <div className="machine-head small" style={{ marginTop: 6 }}>
-                <span className="muted">模型占用</span>
-                <span>{s.scheduler.used_gb.toFixed(1)} GB</span>
-              </div>
-              <div className="gauge">
-                <div style={{ width: `${Math.min(100, (s.scheduler.used_gb / s.memory_budget_gb) * 100)}%` }} />
-              </div>
+              {onlineOnly ? (
+                <p className="small muted" style={{ margin: "4px 0 0" }}>
+                  在线模式：模型都在服务商那边运行，不占这台 Mac 的内存。已连接 {connected} 家服务商。
+                </p>
+              ) : (
+                <>
+                  <div className="machine-head small" style={{ marginTop: 6 }}>
+                    <span className="muted">模型占用</span>
+                    <span>{s.scheduler.used_gb.toFixed(1)} GB</span>
+                  </div>
+                  <div className="gauge">
+                    <div style={{ width: `${Math.min(100, (s.scheduler.used_gb / s.memory_budget_gb) * 100)}%` }} />
+                  </div>
+                </>
+              )}
               <div className="divider" />
               <div className="kv">
                 <div><span>版本</span><b>{s.edition === "commercial" ? "商用版" : "个人版"}</b></div>

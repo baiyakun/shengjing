@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from . import catalog
+from .memory import LocalSupport
 
 log = logging.getLogger(__name__)
 
@@ -99,7 +100,9 @@ UNMANAGED: dict[str, str] = {
 
 GATED = {"pyannote-community-1"}
 
-LocalState = Literal["ready", "partial", "missing", "unmanaged", "conversion", "unavailable"]
+LocalState = Literal[
+    "ready", "partial", "missing", "unmanaged", "conversion", "unavailable", "unsupported"
+]
 JobState = Literal["queued", "running", "done", "failed", "cancelled"]
 
 
@@ -177,8 +180,10 @@ class DownloadManager:
         music_python: Callable[[], str | None],
         publish: Callable[[dict[str, Any]], None],
         command: list[str] | None = None,
+        local: LocalSupport | None = None,
     ) -> None:
         self.hf_home = hf_home
+        self.local = local or LocalSupport(supported=True, arch="", apple_silicon=True)
         self.records = hf_home / ".shengjing-downloads"
         self._hub_env = hub_env
         self._music_python = music_python
@@ -218,6 +223,8 @@ class DownloadManager:
         spec = catalog.get(model_id)
         if spec.worker == "cloud":
             return "unmanaged", 0, "在线服务，不需要下载"
+        if not self.local.supported:
+            return "unsupported", 0, "需要 Apple 芯片的 Mac"
         if spec.needs_conversion:
             return "conversion", 0, "没有现成的 MLX 权重，需要先用 mlx-speech 的脚本自行转换"
         if model_id in UNMANAGED:
@@ -274,6 +281,7 @@ class DownloadManager:
             "path": str(self.hf_home),
             "endpoint": self._hub_env().get("HF_ENDPOINT", ""),
             "sizes_updated_at": self._sizes_meta().get("updated_at"),
+            "supported": self.local.supported,
         }
 
     # ---------- 远端大小（缓存一天） ----------
@@ -292,6 +300,8 @@ class DownloadManager:
 
     def refresh_sizes(self, *, max_age: float = 86400) -> bool:
         """在后台查一遍各模型的下载大小。返回是否真的开始查询。"""
+        if not self.local.supported:
+            return False
         meta = self._sizes_meta()
         if time.time() - meta.get("updated_at", 0) < max_age:
             return False
@@ -320,7 +330,7 @@ class DownloadManager:
 
     def start(self, model_id: str) -> Job:
         state, _, note = self.local_state(model_id)
-        if state in ("unmanaged", "conversion", "unavailable"):
+        if state in ("unmanaged", "conversion", "unavailable", "unsupported"):
             raise DownloadError(note or "这个模型不需要下载")
         job = self.jobs.get(model_id)
         if job and job.active:
@@ -492,7 +502,7 @@ class DownloadManager:
         if spec.worker == "cloud" or spec.id not in ARTIFACTS:
             return
         state, _, _ = self.local_state(spec.id)
-        if state in ("ready", "unmanaged", "conversion", "unavailable"):
+        if state in ("ready", "unmanaged", "conversion", "unavailable", "unsupported"):
             return
         job = self.jobs.get(spec.id)
         if job is None or not job.active:

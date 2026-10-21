@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .audio.ffmpeg import FFmpeg
@@ -13,7 +13,7 @@ from .core import catalog, recommend
 from .core.db import CloudVoiceStore, Database, ProjectStore, VoiceStore
 from .core.downloads import DownloadManager
 from .core.events import EventHub
-from .core.memory import MemoryBudget, chip_name, memory_tier
+from .core.memory import LocalSupport, MemoryBudget, chip_name, local_support, memory_tier
 from .core.scheduler import ModelScheduler
 from .core.settings import SecretStore, SettingsStore
 from .core.tasks import TaskQueue, UserFacingError
@@ -28,8 +28,18 @@ log = logging.getLogger(__name__)
 MODEL_DOWNLOAD_TIMEOUT = 3600.0
 
 
-def build_worker_specs(runtime: RuntimePaths, paths: DataPaths) -> list[WorkerSpec]:
-    """四类模型进程的启动方式。"""
+def build_worker_specs(
+    runtime: RuntimePaths, paths: DataPaths, local: LocalSupport | None = None
+) -> list[WorkerSpec]:
+    """四类模型进程的启动方式。不能运行本地模型的 Mac（Intel 芯片）上全部不可用。"""
+    specs = _worker_specs(runtime, paths)
+    local = local or local_support()
+    if local.supported:
+        return specs
+    return [replace(s, command=None, unavailable_reason=local.reason) for s in specs]
+
+
+def _worker_specs(runtime: RuntimePaths, paths: DataPaths) -> list[WorkerSpec]:
     base = runtime.base_python
 
     def kit(module: str):
@@ -107,12 +117,15 @@ class EngineServices:
     ffmpeg: FFmpeg
     cloud_voices: CloudVoiceStore
     downloads: DownloadManager
+    local: LocalSupport = field(default_factory=local_support)
+    """这台机器能不能运行本地模型（Intel 芯片的 Mac 只能用在线 API）。"""
 
     # ---------- 模型选择 ----------
 
     def machine(self) -> recommend.Machine:
         return recommend.Machine(
-            total_gb=self.budget.total_gb, budget_gb=self.budget.budget_gb, chip=chip_name()
+            total_gb=self.budget.total_gb, budget_gb=self.budget.budget_gb, chip=chip_name(),
+            local_supported=self.local.supported,
         )
 
     def recommendations(self) -> dict[str, recommend.Recommendation]:
@@ -120,7 +133,7 @@ class EngineServices:
         例如转写改用了在线服务，朗读模型就不用和转写模型挤在一起。"""
         settings = self.settings.get()
         in_use = {k: v for k, v in settings.model_overrides.items() if v}
-        if settings.llm.provider == "cloud":
+        if self.llm_provider() == "cloud":
             in_use["llm"] = ""
         elif settings.llm.local_model:
             in_use["llm"] = settings.llm.local_model
@@ -144,6 +157,8 @@ class EngineServices:
             return chosen
         rec = self.recommendations().get(kind)
         if rec is None or rec.model is None:
+            if rec is not None and rec.reason:
+                raise LookupError(rec.reason)
             label = "商用版" if settings.edition == "commercial" else "个人版"
             raise LookupError(f"{label}没有可用的“{recommend.KIND_LABEL.get(kind, kind)}”模型")
         return rec.model
@@ -250,11 +265,26 @@ class EngineServices:
 
     # ---------- LLM ----------
 
+    def llm_provider(self) -> str:
+        """实际使用的 LLM：不能运行本地模型的 Mac 上总是云端接口。"""
+        if not self.local.supported:
+            return "cloud"
+        return self.settings.get().llm.provider
+
     def llm_model_id(self) -> str:
+        """本地 LLM 的模型 ID；不能运行本地模型时为空字符串。"""
+        if not self.local.supported:
+            return ""
         settings = self.settings.get()
         if settings.llm.local_model:
             return settings.llm.local_model
         return self.recommendations()["llm"].model or "qwen3-4b-4bit"
+
+    def llm_label(self) -> str:
+        if self.llm_provider() == "cloud":
+            model = self.settings.get().llm.cloud_model
+            return f"云端 · {model}" if model else "云端（还没设置）"
+        return self.llm_model_id()
 
     def chat_client_for_cloud(self) -> ChatClient:
         settings = self.settings.get()
@@ -269,7 +299,7 @@ class EngineServices:
     def refresh_runtime(self) -> None:
         """安装扩展包后重新检测运行环境，更新未运行进程的启动方式（不用重启引擎）。"""
         self.runtime = RuntimePaths.from_env(self.paths)
-        for spec in build_worker_specs(self.runtime, self.paths):
+        for spec in build_worker_specs(self.runtime, self.paths, self.local):
             if self.workers.get(spec.name) is None:
                 self.workers.specs[spec.name] = spec
 
@@ -282,7 +312,8 @@ class EngineServices:
         defaults: dict[str, str] = {}
         for kind in {m.kind for m in catalog.all_models()}:
             if kind == "llm":
-                defaults[kind] = self.llm_model_id()
+                if self.llm_provider() == "local":
+                    defaults[kind] = self.llm_model_id()
                 continue
             with contextlib.suppress(LookupError, KeyError):
                 defaults[kind] = self.default_model_id(kind)
@@ -298,6 +329,8 @@ class EngineServices:
                 else self.workers.available(m.worker)
             )
             item["download"] = None if m.worker == "cloud" else self.downloads.status(m.id)
+            # 这台 Mac 能不能用（Intel 芯片的 Mac 上只有在线服务能用）
+            item["runs_here"] = m.worker == "cloud" or self.local.supported
             out.append(item)
         return out
 
@@ -312,13 +345,17 @@ class EngineServices:
             "memory_tier": memory_tier(self.budget.total_gb),
             "edition": settings.edition,
             "ffmpeg": self.ffmpeg.available,
-            "llm_default": self.llm_model_id(),
+            "llm_default": self.llm_label(),
+            "llm_provider": self.llm_provider(),
+            "local": self.local.to_dict(),
             "recommendations": {k: r.to_dict() for k, r in self.recommendations().items()},
             "scheduler": self.scheduler.status(),
         }
 
 
-def create_services(paths: DataPaths, runtime: RuntimePaths, token: str) -> EngineServices:
+def create_services(
+    paths: DataPaths, runtime: RuntimePaths, token: str, *, local: LocalSupport | None = None
+) -> EngineServices:
     """组装引擎。不启动任何后台循环（由接口层的 lifespan 负责）。"""
     paths.ensure()
     db = Database(paths.db)
@@ -328,7 +365,10 @@ def create_services(paths: DataPaths, runtime: RuntimePaths, token: str) -> Engi
     tasks = TaskQueue(db, events, paths.outputs)
     budget = MemoryBudget.detect(settings.get().memory_reserve_gb)
 
-    workers = WorkerManager(build_worker_specs(runtime, paths), logs_dir=paths.logs, token=token)
+    local = local or local_support()
+    workers = WorkerManager(
+        build_worker_specs(runtime, paths, local), logs_dir=paths.logs, token=token
+    )
     scheduler = ModelScheduler(workers, budget.budget_gb)
     services = EngineServices(
         paths=paths,
@@ -347,12 +387,14 @@ def create_services(paths: DataPaths, runtime: RuntimePaths, token: str) -> Engi
         ffmpeg=FFmpeg(runtime.ffmpeg),
         cloud_voices=CloudVoiceStore(db),
         downloads=None,  # type: ignore[arg-type]  # 下面创建，它要用到 services 的方法
+        local=local,
     )
     services.downloads = DownloadManager(
         paths.hf_home,
         hub_env=services.hub_env,
         music_python=services.music_python,
         publish=events.publish,
+        local=services.local,
     )
     services.refresh_hub_env()
     scheduler.cloud_factory = services.make_cloud_handle

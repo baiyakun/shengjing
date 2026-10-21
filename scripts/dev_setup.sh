@@ -16,8 +16,10 @@ uv pip install --python "$VENV/bin/python" \
 if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
   # mlx-speech 已由语音进程的依赖带入；mlx-lm 提供本地 LLM 服务
   uv pip install --python "$VENV/bin/python" "mlx-lm>=0.32"
+elif [[ "$(uname -s)" == "Darwin" ]]; then
+  echo "注意：这是 Intel 芯片的 Mac，不能在本机运行模型。App 会进入在线模式，所有功能都通过在线 API 完成。"
 else
-  echo "注意：当前不是 Apple Silicon Mac，mlx-speech 和 mlx-lm 没有安装，只能调试界面和引擎逻辑。"
+  echo "注意：当前不是 Mac，mlx-speech 和 mlx-lm 没有安装，只能调试界面和引擎逻辑。"
 fi
 
 echo "基础环境已就绪：$VENV"

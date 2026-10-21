@@ -1,8 +1,8 @@
 // 录音后期：Step-Audio-EditX 改情绪、风格、语速，降噪，去静音，加副语言
 import { Eraser, Gauge, Laugh, Palette, Scissors, Smile, Sparkles, type LucideIcon } from "lucide-react";
 import { useState } from "react";
-import { Button, Card, DropZone, Field, Page, Player, TaskProgress } from "../components";
-import { useTask } from "../engine";
+import { Button, Callout, Card, DropZone, Field, Page, Player, TaskProgress } from "../components";
+import { useResource, useTask, type SystemInfo } from "../engine";
 
 // 预设的值是 Step-Audio-EditX 认的英文写法，按钮上显示中文
 type Preset = [value: string, label: string];
@@ -29,12 +29,19 @@ export function Edit() {
   const [info, setInfo] = useState("happy");
   const [target, setTarget] = useState("");
   const task = useTask();
+  const system = useResource<SystemInfo>("/system");
+  const onlineOnly = system.data?.local.supported === false;
   const current = TYPES.find((t) => t.value === type)!;
   const needsInfo = Boolean(current.presets);
   const result = task.task?.status === "succeeded" ? task.task.result : null;
 
   return (
     <Page app="edit" narrow>
+      {onlineOnly && (
+        <Callout>
+          录音后期要在本机运行 Step-Audio-EditX，目前没有对应的在线服务。{system.data?.local.reason}。
+        </Callout>
+      )}
       <Card step={1} title="选择录音">
         <DropZone value={path} onChange={setPath} />
         <div style={{ marginTop: 14 }}>
@@ -80,7 +87,7 @@ export function Edit() {
         )}
         <div className="btn-row" style={{ marginTop: 16 }}>
           <Button variant="primary" size="lg" icon={Sparkles} loading={task.busy}
-            disabled={!path || (needsInfo && !info) || (type === "paralinguistic" && !target)}
+            disabled={onlineOnly || !path || (needsInfo && !info) || (type === "paralinguistic" && !target)}
             onClick={() => task.submit("audio.edit", {
               audio_path: path,
               transcript: transcript || undefined,

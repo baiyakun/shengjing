@@ -65,6 +65,16 @@ export interface ModelInfo {
   worker_installed: boolean;
   /** 本地模型的下载状态；在线服务为 null */
   download: DownloadStatus | null;
+  /** 这台 Mac 能不能用（Intel 芯片的 Mac 上只有在线服务能用） */
+  runs_here: boolean;
+}
+
+export interface LocalSupport {
+  /** 能不能在本机运行模型（只有 Apple 芯片可以） */
+  supported: boolean;
+  arch: string;
+  apple_silicon: boolean;
+  reason: string;
 }
 
 export interface DownloadJob {
@@ -80,7 +90,7 @@ export interface DownloadJob {
 
 export interface DownloadStatus {
   /** ready 已下载；partial 没下完；missing 没下载；unmanaged/conversion/unavailable 不能在这里下载 */
-  state: "ready" | "partial" | "missing" | "unmanaged" | "conversion" | "unavailable";
+  state: "ready" | "partial" | "missing" | "unmanaged" | "conversion" | "unavailable" | "unsupported";
   bytes: number;
   note: string;
   remote_bytes: number | null;
@@ -95,6 +105,7 @@ export interface DownloadsOverview {
   path: string;
   endpoint: string;
   sizes_updated_at: number | null;
+  supported: boolean;
 }
 
 export interface Recommendation {
@@ -122,6 +133,8 @@ export interface SystemInfo {
   edition: "personal" | "commercial";
   ffmpeg: boolean;
   llm_default: string;
+  llm_provider: "local" | "cloud";
+  local: LocalSupport;
   recommendations: Record<string, Recommendation>;
   scheduler: { budget_gb: number; used_gb: number; workers: WorkerStatus[] };
 }

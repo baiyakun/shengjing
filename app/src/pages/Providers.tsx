@@ -140,6 +140,10 @@ const DEFAULT_KINDS: { kind: string; label: string; hint: string }[] = [
 
 /** 这台机器的简短描述，例如“Apple M2 Pro · 32 GB 内存，留给模型 25.6 GB” */
 export function machineLine(s: SystemInfo) {
+  if (!s.local.supported) {
+    const chip = s.chip === "unknown" ? "Mac" : s.chip;
+    return `${chip} · 在线模式`;
+  }
   const chip = s.chip === "unknown" ? "Apple Silicon" : s.chip;
   return `${chip} · ${s.memory_total_gb} GB 内存，留给模型 ${s.memory_budget_gb} GB`;
 }
@@ -155,7 +159,9 @@ export function DefaultModels({ overrides, onChange, models, system }: {
   const name = (id: string | null | undefined) => models?.find((m) => m.id === id)?.name ?? id ?? "";
   const customized = DEFAULT_KINDS.some(({ kind }) => overrides[kind]);
   return (
-    <Card title="默认模型" sub="按这台 Mac 的内存和芯片推荐；也可以自己选，本地模型和在线 API 可以混用"
+    <Card title="默认模型" sub={system?.local.supported === false
+      ? "这台 Mac 只能使用在线服务；连接了多家时可以自己选"
+      : "按这台 Mac 的内存和芯片推荐；也可以自己选，本地模型和在线 API 可以混用"}
       actions={customized && (
         <Button variant="ghost" size="sm" icon={RotateCcw} onClick={() => onChange({})}>全部改回推荐</Button>
       )}>
@@ -165,8 +171,12 @@ export function DefaultModels({ overrides, onChange, models, system }: {
           <div className="grow">
             <div style={{ fontWeight: 600 }}>{machineLine(system)}</div>
             <div className="small muted">
-              推荐时会考虑同时要用到的模型，例如逐句配音时的语音合成和质检用的转写模型
-              {system.chip_class === "base" ? "；基础款芯片算力较弱，同类模型里优先用更快的版本" : ""}
+              {system.local.supported ? (
+                <>
+                  推荐时会考虑同时要用到的模型，例如逐句配音时的语音合成和质检用的转写模型
+                  {system.chip_class === "base" ? "；基础款芯片算力较弱，同类模型里优先用更快的版本" : ""}
+                </>
+              ) : `${system.local.reason}，下面只列出已连接的在线服务`}
             </div>
           </div>
         </div>

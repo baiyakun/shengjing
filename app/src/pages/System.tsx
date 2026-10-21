@@ -2,7 +2,7 @@
 import {
   Cloud, Cpu, ExternalLink, FolderOpen, HardDrive, HardDriveDownload, ListChecks, Save,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Badge, Button, Card, Empty, Field, LicenseBadge, Page, Player, Segmented, StatusLabel,
   TaskProgress, Tile, Toggle,
@@ -15,7 +15,7 @@ import {
   DownloadControl, HF_MIRROR, HF_OFFICIAL, RecommendedDownloads, formatBytes, useMissingRecommended,
 } from "../downloads";
 import { revealFile } from "../files";
-import { TASK_KINDS } from "../nav";
+import { TASK_KINDS, openSettingsTab, takeSettingsTab, useNavigate } from "../nav";
 import { DefaultModels, OnlineApis } from "./Providers";
 
 const KIND_LABEL: Record<string, string> = {
@@ -98,6 +98,16 @@ export function Models() {
   const { items: missing, actions } = useMissingRecommended(models.data);
   const [scope, setScope] = useState<"all" | "local" | "ready" | "cloud">("all");
   const [picking, setPicking] = useState(false);
+  const go = useNavigate();
+  const onlineOnly = system.data?.local.supported === false;
+  // 只能用在线服务的 Mac 上默认只看在线服务
+  const scoped = useRef(false);
+  useEffect(() => {
+    if (onlineOnly && !scoped.current) {
+      scoped.current = true;
+      setScope("cloud");
+    }
+  }, [onlineOnly]);
   const groups = useMemo(() => {
     const out: Record<string, ModelInfo[]> = {};
     for (const m of models.data ?? []) {
@@ -123,7 +133,19 @@ export function Models() {
         { value: "ready", label: "已下载" }, { value: "cloud", label: "在线", icon: Cloud },
       ]} />
     }>
-      {o && (
+      {onlineOnly && s && (
+        <Card title="在线模式" sub={s.local.reason} actions={
+          <Button variant="primary" icon={Cloud} onClick={() => { openSettingsTab("online"); go("settings"); }}>
+            管理在线服务
+          </Button>
+        }>
+          <p className="small muted" style={{ margin: 0 }}>
+            朗读、克隆、转写、多人对话、音效、音乐都可以用在线服务完成，下面列出了各家服务商提供的模型。
+            本地模型需要 Apple 芯片（M 系列）的 Mac。
+          </p>
+        </Card>
+      )}
+      {o && o.supported && (
         <Card title="模型文件"
           sub={`已下载 ${readyCount} 个，占用 ${formatBytes(o.used_bytes)} · 磁盘剩余 ${formatBytes(o.free_bytes)}`}
           actions={
@@ -169,7 +191,7 @@ export function Models() {
       )}
       {picking && <RecommendedDownloads models={models.data} onClose={() => setPicking(false)} />}
 
-      {s && (
+      {s && s.local.supported && (
         <div className="cols" style={{ marginBottom: 16, marginTop: 16 }}>
           <Card title="内存" sub={`${s.chip === "unknown" ? "Apple Silicon" : s.chip} · 共 ${s.memory_total_gb} GB`}>
             <div className="machine-head">
@@ -222,11 +244,12 @@ export function Models() {
                     {m.worker === "cloud" ? <Badge><Cloud size={11} />在线</Badge>
                       : <Badge><HardDrive size={11} />本地</Badge>}
                     <LicenseBadge model={m} />
-                    {!m.worker_installed && (
+                    {!m.runs_here && <Badge>需要 Apple 芯片</Badge>}
+                    {m.runs_here && !m.worker_installed && (
                       <Badge tone="warning">{m.worker === "cloud" ? "未填 API Key" : "扩展包未安装"}</Badge>
                     )}
                     {m.needs_conversion && <Badge tone="warning">需自行转换权重</Badge>}
-                    {!m.fits && <Badge tone="danger">本机内存不够</Badge>}
+                    {m.runs_here && !m.fits && <Badge tone="danger">本机内存不够</Badge>}
                   </div>
                   <div className="desc">
                     {m.notes}
@@ -277,7 +300,7 @@ export function Settings() {
   const remote = useResource<{ settings: SettingsShape; secrets: Record<string, boolean> }>("/settings");
   const models = useResource<ModelInfo[]>("/catalog");
   const system = useResource<SystemInfo>("/system");
-  const [tab, setTab] = useState<Tab>("defaults");
+  const [tab, setTab] = useState<Tab>(() => (takeSettingsTab() as Tab | null) ?? "defaults");
   const [s, setS] = useState<SettingsShape | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [hfToken, setHfToken] = useState("");
@@ -290,7 +313,7 @@ export function Settings() {
 
   const save = async () => {
     try {
-      await engine.put("/settings", s);
+      await engine.put("/settings", onlineOnly ? { ...s, llm: { ...s.llm, provider: "cloud" } } : s);
       if (apiKey) await engine.put("/secrets/llm_api_key", { value: apiKey });
       if (hfToken) await engine.put("/secrets/hf_token", { value: hfToken });
       setApiKey("");
@@ -305,6 +328,7 @@ export function Settings() {
     }
   };
   const llms = (models.data ?? []).filter((m) => m.kind === "llm");
+  const onlineOnly = system.data?.local.supported === false;
   const llmRec = system.data?.recommendations.llm;
   const saveBar = (
     <div className="btn-row" style={{ marginTop: 4 }}>
@@ -336,6 +360,11 @@ export function Settings() {
       {tab === "llm" && (
         <>
           <Card title="写剧本、纪要、歌词用的 LLM">
+            {onlineOnly ? (
+              <p className="small muted" style={{ margin: "0 0 12px" }}>
+                {system.data?.local.reason}，写剧本、纪要、歌词需要使用云端 LLM 接口。
+              </p>
+            ) : (
             <Field label="来源">
               <Segmented value={s.llm.provider} block
                 onChange={(provider) => setS({ ...s, llm: { ...s.llm, provider } })}
@@ -344,7 +373,8 @@ export function Settings() {
                   { value: "cloud", label: "云端接口", icon: Cloud },
                 ]} />
             </Field>
-            {s.llm.provider === "local" ? (
+            )}
+            {s.llm.provider === "local" && !onlineOnly ? (
               <Field label="本地模型"
                 hint={llmRec ? `推荐理由：${llmRec.reason}。通过 mlx-lm 在本机运行，第一次使用时下载`
                   : "通过 mlx-lm 在本机运行，第一次使用时下载"}>

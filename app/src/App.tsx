@@ -47,6 +47,19 @@ function MachineCard({ onClick }: { onClick: () => void }) {
   const downloading = activeDownloads(downloads);
   const s = system.data;
   if (!s) return null;
+  if (s.local.supported === false) {
+    return (
+      <div className="machine" onClick={onClick} title="打开模型管理">
+        <div className="machine-head">
+          <span>在线模式</span>
+          <span>{s.local.apple_silicon ? "Intel 版本" : "Intel 芯片"}</span>
+        </div>
+        <div className="machine-workers small">
+          <span className="faint">模型都在服务商那边运行</span>
+        </div>
+      </div>
+    );
+  }
   const used = s.scheduler.used_gb;
   const pct = Math.min(100, (used / Math.max(1, s.memory_budget_gb)) * 100);
   const running = s.scheduler.workers.filter((w) => w.running);
@@ -84,6 +97,8 @@ function MachineCard({ onClick }: { onClick: () => void }) {
 
 function Sidebar({ current, go }: { current: PageId; go: (id: PageId) => void }) {
   const { tasks } = useEngineState();
+  const system = useResource<SystemInfo>("/system");
+  const onlineOnly = system.data?.local.supported === false;
   const active = useMemo(
     () => Object.values(tasks).filter((t) => t.status === "queued" || t.status === "running").length,
     [tasks],
@@ -111,6 +126,7 @@ function Sidebar({ current, go }: { current: PageId; go: (id: PageId) => void })
                   <span className="nav-label">{meta.label}</span>
                   {id === "tasks" && active > 0 && <span className="nav-count">{active}</span>}
                   {meta.planned && <span className="nav-soon">开发中</span>}
+                  {onlineOnly && meta.localOnly && <span className="nav-soon">需 M 芯片</span>}
                 </button>
               );
             })}

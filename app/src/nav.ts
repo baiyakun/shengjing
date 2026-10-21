@@ -17,6 +17,8 @@ export interface AppMeta {
   /** 图标块的颜色（参考 macOS 系统色） */
   tint: string;
   planned?: string;
+  /** 只能在本机运行（没有在线服务），Intel 芯片的 Mac 上不能用 */
+  localOnly?: boolean;
 }
 
 export const APPS: Record<PageId, AppMeta> = {
@@ -43,7 +45,7 @@ export const APPS: Record<PageId, AppMeta> = {
   },
   edit: {
     id: "edit", label: "录音后期", icon: SlidersHorizontal, tint: "#34C759",
-    desc: "改情绪、风格、语速，降噪，去静音",
+    desc: "改情绪、风格、语速，降噪，去静音", localOnly: true,
   },
   meeting: {
     id: "meeting", label: "会议纪要", icon: NotebookPen, tint: "#F5A30A",
@@ -95,3 +97,14 @@ export const TASK_KINDS: Record<string, { label: string; app: PageId }> = {
 /** 在页面之间跳转（首页卡片、任务链接等用） */
 export const NavContext = createContext<(id: PageId) => void>(() => undefined);
 export const useNavigate = () => useContext(NavContext);
+
+// 从别的页面直接打开设置里的某个标签页（例如首页的“连接在线服务”）
+let pendingSettingsTab: string | null = null;
+export function openSettingsTab(tab: string) {
+  pendingSettingsTab = tab;
+}
+export function takeSettingsTab(): string | null {
+  const tab = pendingSettingsTab;
+  pendingSettingsTab = null;
+  return tab;
+}

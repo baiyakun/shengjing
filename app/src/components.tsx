@@ -436,7 +436,8 @@ export function ModelSelect({ models, kinds, value, onChange, empty = "default" 
   onChange: (id: string) => void;
   empty?: "default" | "recommended";
 }) {
-  const options = (models ?? []).filter((m) => kinds.includes(m.kind) && m.allowed);
+  // 只列这台 Mac 能用的（Intel 芯片的 Mac 上只有在线服务）
+  const options = (models ?? []).filter((m) => kinds.includes(m.kind) && m.allowed && m.runs_here);
   const fallback = options.find((m) => (empty === "recommended" ? m.recommended : m.default));
   const local = options.filter((m) => m.worker !== "cloud");
   const cloud = options.filter((m) => m.worker === "cloud");
@@ -455,9 +456,20 @@ export function ModelSelect({ models, kinds, value, onChange, empty = "default" 
   );
 }
 
-/** 选中的本地模型放不进这台机器的内存时提醒一下。 */
-export function FitWarning({ model }: { model?: ModelInfo }) {
-  if (!model || model.fits) return null;
+/** 没有可用的模型、在线服务还没填 Key、本地模型放不进内存时提醒一下。 */
+export function FitWarning({ model, models }: { model?: ModelInfo; models?: ModelInfo[] | null }) {
+  if (!model) {
+    if (!models) return null;
+    return (
+      <Callout>
+        还没有可用的模型。请先在设置 → 在线 API 里连接支持这项功能的服务。
+      </Callout>
+    );
+  }
+  if (model.worker === "cloud" && !model.worker_installed) {
+    return <Callout>还没有填写 {model.name.split("·")[0].trim()} 的 API Key，请到设置 → 在线 API 填写。</Callout>;
+  }
+  if (model.fits) return null;
   return (
     <Callout>
       这台 Mac 留给模型的内存不够运行 {model.name}（约 {model.memory_gb} GB），可能会失败。

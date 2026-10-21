@@ -4,8 +4,9 @@
 
 **在 Mac 上本地运行的 AI 有声内容工作室**
 
-有声书、AI 播客、声音分身、会议纪要、录音后期、音效、音乐。默认全部在你的 Mac 上本地完成；
+有声书、AI 播客、声音分身、会议纪要、录音后期、音效、音乐。在 Apple 芯片的 Mac 上默认全部本地完成；
 每类能力也可以切换到在线 API（OpenAI 兼容接口、SenseAudio、Fish Audio、ElevenLabs）。
+Intel 芯片的 Mac 也能用，但只能使用在线 API。
 
 </div>
 
@@ -14,6 +15,7 @@
 ## 目录
 
 - [功能](#功能)
+- [支持的 Mac](#支持的-mac)
 - [架构](#架构)
 - [目录结构](#目录结构)
 - [开发](#开发)
@@ -51,6 +53,25 @@
   保留了商用版开关，打开后会自动排除非商用许可的模型。
 - **按机器推荐模型**：根据内存和芯片给每类任务推荐默认模型，并说明理由，见[默认模型怎么选](#默认模型怎么选)。
 - **按内存调度**：根据机器内存决定哪些模型常驻、哪些用完就关闭进程释放内存。
+
+## 支持的 Mac
+
+| | Apple 芯片（M1 或更新） | Intel 芯片 |
+| --- | --- | --- |
+| 系统 | macOS 14 或更新 | macOS 14 或更新 |
+| 本地模型 | ✅ 全部可用，可以离线使用 | ❌ 不支持（MLX 只能在 Apple 芯片上运行） |
+| 在线 API | ✅ | ✅ 所有功能都通过在线 API 完成 |
+| 安装包 | Apple 芯片版本 | Intel 版本 |
+
+Intel 芯片的 Mac 上 App 会自动进入**在线模式**：
+
+- 模型选择里只列出在线服务；默认模型从已连接的服务商里选，首页会提示先连接一家。
+- 写剧本、纪要、歌词需要在设置 → LLM 里填写云端接口（任意 OpenAI 兼容接口）。
+- 各功能需要的服务：朗读和克隆、转写、音效、音乐可以用 SenseAudio、ElevenLabs 等；
+  多人对话一次生成只有 SenseAudio 提供；区分发言人用 SenseAudio 或 ElevenLabs 的转写。
+- **录音后期**（Step-Audio-EditX）目前没有在线服务，Intel 芯片的 Mac 上不能用。
+- 不需要下载模型，也不需要安装扩展包。
+- 在 Apple 芯片的 Mac 上装了 Intel 版本时，App 会提示改装 Apple 芯片版本。
 
 ## 架构
 
@@ -102,7 +123,8 @@ docs/                开发方案、架构说明
 
 ### 准备
 
-- Apple Silicon Mac（M1 或更新），macOS 14 或更新
+- Mac，macOS 14 或更新。Apple 芯片可以开发全部功能；Intel 芯片只能开发和测试在线模式
+  （`scripts/dev.sh` 一样能用，App 会自动进入在线模式）
 - [uv](https://docs.astral.sh/uv/)、Node.js 22+、[pnpm](https://pnpm.io/)、[Rust](https://rustup.rs/)
 - ffmpeg：`brew install ffmpeg`
 

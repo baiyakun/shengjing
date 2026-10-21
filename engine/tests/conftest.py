@@ -13,6 +13,8 @@ import pytest
 
 os.environ.setdefault("SHENGJING_SECRETS", "memory")
 os.environ.setdefault("SHENGJING_TOTAL_MEMORY_GB", "32")
+# 测试默认按 Apple 芯片处理（在 Intel Mac 的 CI 上也一样）；Intel 的情况单独测试
+os.environ.setdefault("SHENGJING_LOCAL_MODELS", "1")
 
 from shengjing_engine.audio.ffmpeg import write_wav  # noqa: E402
 from shengjing_engine.config import DataPaths, RuntimePaths  # noqa: E402
