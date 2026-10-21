@@ -16,7 +16,9 @@ from pydantic import BaseModel, Field
 
 log = logging.getLogger(__name__)
 
-SECRET_NAMES = ("llm_api_key", "hf_token")
+# 在线服务商的 API Key 命名为 <服务商 ID>_api_key
+PROVIDER_IDS = ("openai", "senseaudio", "fish_audio", "elevenlabs")
+SECRET_NAMES = ("llm_api_key", "hf_token", *(f"{p}_api_key" for p in PROVIDER_IDS))
 KEYRING_SERVICE = "dev.shengjing.desktop"
 
 
@@ -30,11 +32,20 @@ class LLMSettings(BaseModel):
     temperature: float = 0.7
 
 
+class ProviderSettings(BaseModel):
+    base_url: str = ""
+    """留空使用服务商的默认地址。"""
+    options: dict[str, str] = Field(default_factory=dict)
+    """默认模型、默认声音等，留空的项使用服务商的默认值。"""
+
+
 class Settings(BaseModel):
     edition: Literal["personal", "commercial"] = "personal"
     llm: LLMSettings = Field(default_factory=LLMSettings)
     model_overrides: dict[str, str] = Field(default_factory=dict)
-    """任务类型 → 模型 ID，覆盖默认模型。"""
+    """任务类型 → 模型 ID，覆盖默认模型（可以选本地模型，也可以选在线 API）。"""
+    providers: dict[str, ProviderSettings] = Field(default_factory=dict)
+    """在线服务商的设置，键为服务商 ID。API Key 存在系统钥匙串里。"""
     hf_endpoint: str = ""
     """模型下载源，例如镜像站 https://hf-mirror.com；留空使用官方地址。"""
     memory_reserve_gb: float | None = None

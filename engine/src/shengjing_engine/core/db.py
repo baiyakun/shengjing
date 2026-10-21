@@ -59,6 +59,14 @@ CREATE TABLE IF NOT EXISTS renders (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS renders_line ON renders(project_id, line_id, version);
+
+CREATE TABLE IF NOT EXISTS cloud_voices (
+    provider TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    remote_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (provider, fingerprint)
+);
 """
 
 
@@ -291,4 +299,34 @@ class ProjectStore:
             "UPDATE renders SET selected = CASE WHEN id = ? THEN 1 ELSE 0 END "
             "WHERE project_id = ? AND line_id = ?",
             (render_id, project_id, line_id),
+        )
+
+
+# ---------------- 在线服务商的克隆音色缓存 ----------------
+
+
+class CloudVoiceStore:
+    """同一段参考录音在同一家服务商只克隆一次，记住对方返回的音色 ID。"""
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def get(self, provider: str, fingerprint: str) -> str | None:
+        rows = self._db.query(
+            "SELECT remote_id FROM cloud_voices WHERE provider = ? AND fingerprint = ?",
+            (provider, fingerprint),
+        )
+        return rows[0]["remote_id"] if rows else None
+
+    def put(self, provider: str, fingerprint: str, remote_id: str) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO cloud_voices (provider, fingerprint, remote_id, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (provider, fingerprint, remote_id, time.time()),
+        )
+
+    def forget(self, provider: str, fingerprint: str) -> None:
+        self._db.execute(
+            "DELETE FROM cloud_voices WHERE provider = ? AND fingerprint = ?",
+            (provider, fingerprint),
         )

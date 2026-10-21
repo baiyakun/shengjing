@@ -1,20 +1,25 @@
 // 音效库：一句需求 → （可选）LLM 扩写成多条具体描述 → 批量生成
 import { useState } from "react";
-import { Field, Page, Player, Section, TaskProgress } from "../components";
-import { useTask } from "../engine";
+import { Field, ModelSelect, Page, Player, Section, TaskProgress } from "../components";
+import { useResource, useTask, type ModelInfo } from "../engine";
 
 export function Sfx() {
   const [description, setDescription] = useState("雨夜，老旧木门被风吹开");
   const [duration, setDuration] = useState(5);
   const [variants, setVariants] = useState(3);
   const [expand, setExpand] = useState(true);
+  const [model, setModel] = useState("");
+  const models = useResource<ModelInfo[]>("/catalog");
   const task = useTask();
   const items: { description: string; path: string; duration: number }[] =
     task.task?.status === "succeeded" ? task.task.result.items : [];
 
   return (
-    <Page title="音效库" subtitle="用文字生成环境声和动作音效（MOSS-SoundEffect，不适合做音乐）。">
+    <Page title="音效库" subtitle="用文字生成环境声和动作音效。本地用 MOSS-SoundEffect，也可以用在线服务。">
       <Section>
+        <Field label="模型">
+          <ModelSelect models={models.data} kinds={["sfx"]} value={model} onChange={setModel} />
+        </Field>
         <Field label="想要的音效">
           <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>
@@ -35,7 +40,11 @@ export function Sfx() {
         <button
           className="primary"
           disabled={!description.trim() || task.busy}
-          onClick={() => task.submit("sfx.generate", { description, duration, variants, expand })}
+          onClick={() =>
+            task.submit("sfx.generate", {
+              description, duration, variants, expand, model: model || undefined,
+            })
+          }
         >
           生成
         </button>

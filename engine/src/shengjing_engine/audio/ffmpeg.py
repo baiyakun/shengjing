@@ -110,6 +110,33 @@ class FFmpeg:
         )
         return dst
 
+    def to_wav_native(self, src: str | Path, dst: str | Path) -> Path:
+        """转成 WAV，保留原采样率和声道（保存在线服务返回的 mp3 等格式用）。"""
+        dst = Path(dst)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        self._run(["-y", "-i", str(src), "-vn", "-c:a", "pcm_s16le", str(dst)])
+        return dst
+
+    def to_mp3(
+        self,
+        src: str | Path,
+        dst: str | Path,
+        *,
+        sample_rate: int = 16000,
+        bitrate: str = "64k",
+        max_seconds: float | None = None,
+    ) -> Path:
+        """转成体积小的单声道 mp3（上传给在线服务用）。"""
+        dst = Path(dst)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        args = ["-y", "-i", str(src), "-vn"]
+        if max_seconds is not None:
+            args += ["-t", str(max_seconds)]
+        args += ["-ac", "1", "-ar", str(sample_rate), "-c:a", "libmp3lame", "-b:a", bitrate,
+                 str(dst)]
+        self._run(args)
+        return dst
+
     def duration(self, path: str | Path) -> float:
         path = Path(path)
         if path.suffix.lower() == ".wav":

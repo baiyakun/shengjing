@@ -145,6 +145,25 @@ async def music_generate(ctx: TaskContext) -> dict[str, Any]:
     if key:
         payload["key_scale"] = key
 
+    if spec.worker == "cloud":
+        ctx.progress(0.1, f"提交到 {spec.name}")
+        async with services.scheduler.use(spec.id) as handle:
+            result = await handle.run(
+                "music.generate",
+                {
+                    "prompt": p.get("theme") or style,
+                    "style": style,
+                    "lyrics": lyrics,
+                    "instrumental": bool(p.get("instrumental")),
+                    "duration": payload["audio_duration"],
+                    "language": language,
+                    "output_dir": str(ctx.out_dir),
+                },
+            )
+        return {"title": title or result.get("title") or "", "style": style,
+                "lyrics": result.get("lyrics") or lyrics, "files": result["files"],
+                "model": spec.id}
+
     ctx.progress(0.1, "加载 ACE-Step")
     async with services.scheduler.use(spec.id) as handle:
         client = AceStepClient(handle.base_url, api_key=handle.token)

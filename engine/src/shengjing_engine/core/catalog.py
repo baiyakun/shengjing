@@ -31,7 +31,8 @@ Kind = Literal[
     "music",
 ]
 
-Worker = Literal["speech", "llm", "analysis", "music"]
+Worker = Literal["speech", "llm", "analysis", "music", "cloud"]
+"""cloud 表示在线 API，source 为服务商 ID（见 providers/）。"""
 
 # yes: 许可证允许商用（可能有署名等义务）
 # restricted: 有条件商用（营收门槛、规模限制等），商用前必须逐条核对
@@ -479,6 +480,79 @@ _MODELS: tuple[ModelSpec, ...] = (
         notes="带人声的完整歌曲，10 秒到 10 分钟；中文歌词效果需实测。",
     ),
 )
+
+CLOUD_NOTE = "在线服务，按服务商的价格计费；音频和文字会上传到服务商。"
+
+
+def _cloud(
+    id: str,
+    name: str,
+    kind: Kind,
+    provider: str,
+    url: str,
+    *,
+    capabilities: tuple[str, ...] = (),
+    notes: str = "",
+) -> ModelSpec:
+    return ModelSpec(
+        id=id,
+        name=name,
+        kind=kind,
+        worker="cloud",
+        source=provider,
+        url=url,
+        license="服务商条款",
+        commercial="restricted",
+        memory_gb=0.0,
+        capabilities=capabilities,
+        license_note=CLOUD_NOTE,
+        notes=notes,
+    )
+
+
+_CLOUD_MODELS: tuple[ModelSpec, ...] = (
+    # OpenAI 兼容接口（改接口地址可用于其他兼容服务）
+    _cloud("openai-tts", "OpenAI 兼容 · 语音合成", "tts", "openai",
+           "https://developers.openai.com/api/reference/resources/audio",
+           capabilities=("instruction",), notes="不支持克隆；gpt-4o-mini-tts 可用文字描述语气。"),
+    _cloud("openai-asr", "OpenAI 兼容 · 转写", "asr", "openai",
+           "https://developers.openai.com/api/reference/resources/audio"),
+    # SenseAudio（商汤）
+    _cloud("senseaudio-tts", "SenseAudio · 语音合成", "tts", "senseaudio",
+           "https://docs.senseaudio.cn/guides/tts/overview", capabilities=("clone",),
+           notes="参考录音会自动克隆成 SenseAudio 音色（只克隆一次）。"),
+    _cloud("senseaudio-audiogen", "SenseAudio · 多角色音频生成", "dialogue", "senseaudio",
+           "https://docs.senseaudio.cn/guides/audio/overview",
+           capabilities=("multi_speaker", "clone", "delivery_text"),
+           notes="一次生成多角色对白；单次最长 120 秒，最多 3 个参考音色。"),
+    _cloud("senseaudio-asr", "SenseAudio · 转写", "asr", "senseaudio",
+           "https://docs.senseaudio.cn/guides/asr/overview", capabilities=("diarization",),
+           notes="可以同时区分说话人。"),
+    _cloud("senseaudio-sfx", "SenseAudio · 音效", "sfx", "senseaudio",
+           "https://docs.senseaudio.cn/guides/sfx/overview", notes="1–10 秒。"),
+    _cloud("senseaudio-music", "SenseAudio · 音乐", "music", "senseaudio",
+           "https://docs.senseaudio.cn/guides/music/overview"),
+    # Fish Audio
+    _cloud("fish-audio-tts", "Fish Audio · 语音合成", "tts", "fish_audio",
+           "https://docs.fish.audio", capabilities=("clone", "emotion_tags"),
+           notes="和本地 Fish S2 Pro 一样支持行内情绪标签；也可在设置里选 drama-3 模型。"),
+    _cloud("fish-audio-asr", "Fish Audio · 转写", "asr", "fish_audio", "https://docs.fish.audio"),
+    # ElevenLabs
+    _cloud("elevenlabs-tts", "ElevenLabs · 语音合成", "tts", "elevenlabs",
+           "https://elevenlabs.io/docs/api-reference/text-to-speech/convert",
+           capabilities=("clone", "audio_tags"),
+           notes="参考录音会自动做即时克隆（只克隆一次）。"),
+    _cloud("elevenlabs-asr", "ElevenLabs · 转写", "asr", "elevenlabs",
+           "https://elevenlabs.io/docs/api-reference/speech-to-text/convert",
+           capabilities=("diarization",), notes="可以同时区分说话人。"),
+    _cloud("elevenlabs-sfx", "ElevenLabs · 音效", "sfx", "elevenlabs",
+           "https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert",
+           notes="0.5–30 秒。"),
+    _cloud("elevenlabs-music", "ElevenLabs · 音乐", "music", "elevenlabs",
+           "https://elevenlabs.io/docs/api-reference/music/compose"),
+)
+
+_MODELS = _MODELS + _CLOUD_MODELS
 
 CATALOG: dict[str, ModelSpec] = {spec.id: spec for spec in _MODELS}
 

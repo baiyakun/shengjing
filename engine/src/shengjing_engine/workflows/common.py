@@ -105,11 +105,12 @@ def asr_language(spec: catalog.ModelSpec, code: str | None) -> str | None:
     - Cohere：语言代码，例如 zh、en
     - Nemotron：地区代码，例如 zh-CN、en-US
     - Qwen3-ASR、Confucius4、Granite：英文语言名，例如 Chinese
+    - 在线服务：ISO 语言代码
     None 表示让模型自动判断。
     """
     if not code:
         return None
-    if spec.id == "cohere-asr":
+    if spec.id == "cohere-asr" or spec.worker == "cloud":
         return code
     if spec.id.startswith("nemotron"):
         return _LOCALES.get(code, code)

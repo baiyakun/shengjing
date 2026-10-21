@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Field, LicenseBadge, Page, Player, Section, TaskProgress,
 } from "../components";
+import { DefaultModels, OnlineApis } from "./Providers";
 import {
   useEngine, useEngineState, useResource, type ModelInfo, type SystemInfo, type Task,
 } from "../engine";
@@ -96,12 +97,18 @@ export function Models() {
                     {m.license_note && <div className="small muted">{m.license_note}</div>}
                   </td>
                   <td className="small">
-                    {m.memory_gb} GB{m.measured ? "（实测）" : "（估算）"}
+                    {m.worker === "cloud"
+                      ? "在线"
+                      : `${m.memory_gb} GB${m.measured ? "（实测）" : "（估算）"}`}
                   </td>
                   <td className="small">
                     {m.notes}
                     {m.needs_conversion && <div className="warn">需要用 mlx-speech 脚本自行转换权重</div>}
-                    {!m.worker_installed && <div className="warn">所在进程未安装</div>}
+                    {!m.worker_installed && (
+                      <div className="warn">
+                        {m.worker === "cloud" ? "未填写 API Key（在设置里填写）" : "所在进程未安装"}
+                      </div>
+                    )}
                     {!m.allowed && <div className="warn">商用版不可用</div>}
                   </td>
                 </tr>
@@ -116,6 +123,7 @@ export function Models() {
 
 interface SettingsShape {
   edition: "personal" | "commercial";
+  model_overrides: Record<string, string>;
   llm: { provider: "local" | "cloud"; local_model: string | null; cloud_base_url: string;
     cloud_model: string; temperature: number };
   hf_endpoint: string;
@@ -156,11 +164,19 @@ export function Settings() {
 
   return (
     <Page title="设置">
+      <DefaultModels
+        overrides={s.model_overrides}
+        onChange={(next) => setS({ ...s, model_overrides: next })}
+      />
+      <div className="row save-row">
+        <button className="primary" onClick={save}>保存默认模型</button>
+      </div>
+      <OnlineApis />
       <Section title="版本">
         <label className="check">
           <input type="radio" checked={s.edition === "personal"}
             onChange={() => setS({ ...s, edition: "personal" })} />
-          个人版：可以使用所有模型，包括非商用许可的模型
+          个人版（默认）：可以使用所有模型，包括非商用许可的模型
         </label>
         <label className="check">
           <input type="radio" checked={s.edition === "commercial"}
@@ -250,6 +266,7 @@ export function Settings() {
 const FRAMEWORKS = [
   ["Tauri", "MIT / Apache-2.0"], ["React", "MIT"], ["Vite", "MIT"], ["MLX", "MIT"],
   ["mlx-speech", "MIT"], ["mlx-lm", "MIT"], ["FastAPI", "MIT"], ["Uvicorn", "BSD-3-Clause"],
+  ["websockets", "BSD-3-Clause"], ["msgpack", "Apache-2.0"],
   ["PyTorch", "BSD-3-Clause"], ["pyannote.audio", "MIT"], ["Demucs", "MIT"],
   ["ACE-Step 1.5", "MIT"], ["FFmpeg（LGPL 构建）", "LGPL-2.1+"],
 ];

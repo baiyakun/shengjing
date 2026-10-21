@@ -148,7 +148,26 @@ export function LicenseBadge({ model }: { model: Pick<ModelInfo, "commercial" | 
   );
 }
 
-/** 某类任务可选的模型（只列当前版本允许使用的）。 */
+/** 模型的简短说明：本地模型显示内存和许可，在线 API 显示是否已填 Key。 */
+export function modelMeta(m: ModelInfo): string {
+  if (m.worker === "cloud") {
+    return m.worker_installed ? "在线 API" : "在线 API · 未填写 API Key";
+  }
+  const parts = [`约 ${m.memory_gb} GB`, COMMERCIAL_LABEL[m.commercial]];
+  if (m.needs_conversion) parts.push("需自行转换权重");
+  if (!m.worker_installed) parts.push("扩展包未安装");
+  return parts.join(" · ");
+}
+
+/** 当前选择（或默认）的模型。 */
+export function resolveModel(
+  models: ModelInfo[] | null, kinds: string[], chosen: string,
+): ModelInfo | undefined {
+  const list = (models ?? []).filter((m) => kinds.includes(m.kind));
+  return chosen ? list.find((m) => m.id === chosen) : list.find((m) => m.default);
+}
+
+/** 某类任务可选的模型（只列当前版本允许使用的），本地和在线 API 都在里面。 */
 export function ModelSelect({ models, kinds, value, onChange }: {
   models: ModelInfo[] | null;
   kinds: string[];
@@ -162,8 +181,7 @@ export function ModelSelect({ models, kinds, value, onChange }: {
       {options.map((m) => (
         <option key={m.id} value={m.id}>
           {m.name}
-          {m.default ? "（默认）" : ""} · 约 {m.memory_gb} GB · {COMMERCIAL_LABEL[m.commercial]}
-          {m.needs_conversion ? " · 需自行转换权重" : ""}
+          {m.default ? "（默认）" : ""} · {modelMeta(m)}
         </option>
       ))}
     </select>

@@ -76,6 +76,18 @@ _DRAMA3_TAGS = {
     "cry": "[sobs]",
 }
 _BREEZE_TAGS = {"sigh": "(sigh)", "laugh": "(laugh)"}
+# SenseAudio 音频生成用自然语言描述非语言声音
+_ZH_TAGS = {"sigh": "叹气", "laugh": "笑", "pause": "停顿", "whisper": "小声",
+            "breath": "吸气", "cry": "哭腔"}
+# ElevenLabs v3 的音频标签（英文）
+_ELEVEN_TAGS = {
+    "sigh": "[sighs]",
+    "laugh": "[laughs]",
+    "pause": "[pause]",
+    "whisper": "[whispers]",
+    "breath": "[exhales]",
+    "cry": "[crying]",
+}
 
 
 def _fish_text(line: Line) -> str:
@@ -182,6 +194,58 @@ def _plain_renderer(model: str, *, need_text: bool, language_param: str | None =
     return render
 
 
+def _render_openai(line, cast, voice, script):
+    params: dict[str, Any] = {}
+    warnings = []
+    if voice is not None:
+        warnings.append("OpenAI 兼容接口不支持克隆，已使用设置里的默认声音")
+    instruction = line.delivery or cast.description
+    if instruction:
+        params["instructions"] = instruction
+    if line.tags:
+        warnings.append("OpenAI 兼容接口不支持标签，已忽略（语气描述会作为 instructions 传入）")
+    if line.duration is not None:
+        warnings.append("OpenAI 兼容接口不支持指定时长，已忽略")
+    return RenderJob("openai-tts", [line.id], line.text, params, warnings)
+
+
+def _render_senseaudio(line, cast, voice, script):
+    params = _ref_params(voice, need_text=False, model="SenseAudio")
+    warnings = []
+    text = line.text
+    if "pause" in line.tags:
+        text = "<break time=600>" + text
+    if line.delivery or [t for t in line.tags if t != "pause"]:
+        warnings.append("SenseAudio 语音合成不支持语气描述和标签（停顿除外），已忽略；"
+                        "需要语气控制可以改用“SenseAudio · 多角色音频生成”")
+    if line.duration is not None:
+        warnings.append("SenseAudio 语音合成不支持指定时长，已忽略")
+    return RenderJob("senseaudio-tts", [line.id], text, params, warnings)
+
+
+def _render_fish_cloud(line, cast, voice, script):
+    params = _ref_params(voice, need_text=True, model="Fish Audio")
+    warnings = []
+    if line.duration is not None:
+        warnings.append("Fish Audio 不支持指定时长，已忽略")
+    return RenderJob("fish-audio-tts", [line.id], _fish_text(line), params, warnings)
+
+
+def _render_elevenlabs(line, cast, voice, script):
+    params = _ref_params(voice, need_text=False, model="ElevenLabs")
+    parts = []
+    if line.delivery:
+        parts.append(f"[{line.delivery}]")
+    parts.extend(_ELEVEN_TAGS[t] for t in line.tags)
+    parts.append(line.text)
+    warnings = []
+    if line.delivery or line.tags:
+        warnings.append("语气描述和标签按 ElevenLabs v3 音频标签发送，旧模型会把它们读出来")
+    if line.duration is not None:
+        warnings.append("ElevenLabs 不支持指定时长，已忽略")
+    return RenderJob("elevenlabs-tts", [line.id], " ".join(parts), params, warnings)
+
+
 LINE_RENDERERS: dict[str, LineRenderer] = {
     "fish-s2-pro": _render_fish_s2,
     "fish-drama-3": _render_drama3,
@@ -193,11 +257,18 @@ LINE_RENDERERS: dict[str, LineRenderer] = {
     "moss-local": _plain_renderer("moss-local", need_text=False),
     "longcat": _plain_renderer("longcat", need_text=False),
     "step-audio": _plain_renderer("step-audio", need_text=True),
+    "openai-tts": _render_openai,
+    "senseaudio-tts": _render_senseaudio,
+    "fish-audio-tts": _render_fish_cloud,
+    "elevenlabs-tts": _render_elevenlabs,
 }
 
 # ---------------- 多人对话编译 ----------------
 
-DIALOGUE_MODELS = {"fish-drama-3", "moss-ttsd", "vibevoice"}
+DIALOGUE_MODELS = {"fish-drama-3", "moss-ttsd", "vibevoice", "senseaudio-audiogen"}
+
+# SenseAudio 音频生成单次最长 120 秒，按普通话每秒约 3 个字留余量
+SENSEAUDIO_CHUNK_CHARS = 330
 
 
 def _chunks(lines: list[Line], max_chars: int) -> list[list[Line]]:
@@ -227,6 +298,9 @@ def _compile_dialogue(
     script: Script, model: str, voices: dict[str, VoiceRef | None], max_chars: int
 ) -> list[RenderJob]:
     index = _speaker_index(script)
+    cast = script.cast_by_id()
+    if model == "senseaudio-audiogen":
+        max_chars = min(max_chars, SENSEAUDIO_CHUNK_CHARS)
     jobs: list[RenderJob] = []
     for group in _chunks(script.lines, max_chars):
         warnings: list[str] = []
@@ -272,9 +346,49 @@ def _compile_dialogue(
             if any(voices.get(sp) for sp in index):
                 warnings.append("统一接口下 VibeVoice 不能分别克隆每个人，已使用模型自带声音")
             jobs.append(RenderJob(model, ids, text, {}, warnings))
+        elif model == "senseaudio-audiogen":
+            text, params, warnings = _senseaudio_prompt(group, cast, voices)
+            jobs.append(RenderJob(model, ids, text, params, warnings))
         else:
             raise CompileError(f"{model} 不是多人对话模型")
     return jobs
+
+
+def _senseaudio_prompt(
+    group: list[Line], cast: dict[str, CastMember], voices: dict[str, VoiceRef | None]
+) -> tuple[str, dict[str, Any], list[str]]:
+    """SenseAudio 音频生成的写法：角色列表 → 音频内容，{speaker：角色名}（语气）台词。
+
+    参考音色用 @音频N 引用，最多 3 个；文字里的 @ 需要转义。
+    """
+    speakers: list[str] = []
+    for line in group:
+        if line.speaker not in speakers:
+            speakers.append(line.speaker)
+    refs: list[str] = []
+    roles: list[str] = []
+    warnings: list[str] = []
+    for sp in speakers:
+        member = cast[sp]
+        desc = member.description.strip() or "自然的声音"
+        voice = voices.get(sp)
+        if voice is not None and len(refs) < 3:
+            refs.append(voice.audio_path)
+            desc += f"，音色参考 @音频{len(refs)}"
+        elif voice is not None:
+            warnings.append(f"SenseAudio 一次最多 3 个参考音色，{member.name} 改用文字描述")
+        roles.append(f"- {member.name}：{desc}")
+    body = []
+    for line in group:
+        cues = [line.delivery] if line.delivery else []
+        cues += [_ZH_TAGS[t] for t in line.tags]
+        cue = f"（{'，'.join(cues)}）" if cues else ""
+        text = line.text.replace("@", "\\@")
+        body.append(f"{{speaker：{cast[line.speaker].name}}}{cue}{text}")
+    if any(line.duration is not None for line in group):
+        warnings.append("SenseAudio 音频生成不支持逐句指定时长，已忽略")
+    prompt = "角色列表：\n" + "\n".join(roles) + "\n\n音频内容：\n" + "\n".join(body)
+    return prompt, ({"references": refs} if refs else {}), warnings
 
 
 # ---------------- 入口 ----------------

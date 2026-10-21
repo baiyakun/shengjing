@@ -33,6 +33,27 @@ Tauri 外壳（Rust）
 预算 = 物理内存 − 预留（默认 4GB 或 20%，取较大值）。每个模型的内存估算在 `core/catalog.py`。
 空闲超过设定时间（默认 10 分钟）的进程会被自动关闭。
 
+## 在线 API
+
+在线 API 和本地模型登记在同一个模型目录里（`core/catalog.py`，`worker="cloud"`，
+`source` 为服务商 ID）。调度器遇到在线模型时不启动本地进程、不占内存预算，
+直接返回 `CloudHandle`。它和本地模型的句柄接口相同（`run(op, params)`），
+所以工作流不需要区分本地和在线：
+
+| 操作 | 本地模型 | 在线 API（按模型类型转到） |
+| --- | --- | --- |
+| `tts.generate` | 语音进程里的 mlx-speech 模型 | `tts()`；音效类型转 `sfx()`；对话类型转 `dialogue()` |
+| `asr.transcribe` | 语音进程里的 ASR 模型 | `asr()`，可带 `diarize` 区分说话人 |
+| `music.generate` | ACE-Step 服务 | `music()` |
+
+服务商实现在 `providers/`：`openai_compat.py`、`senseaudio.py`、`fish_audio.py`、`elevenlabs.py`。
+返回的音频统一转成 WAV，方便后续质检和混音。需要先克隆的服务（SenseAudio、ElevenLabs）
+会把“参考录音指纹 → 服务商音色 ID”记在 `cloud_voices` 表里，避免重复克隆。
+
+剧本编译器也给每个在线 TTS 准备了写法：OpenAI 的语气描述放进 `instructions`，
+Fish Audio 沿用行内标签，ElevenLabs 用 v3 音频标签，SenseAudio 音频生成用
+“角色列表 → `{speaker：角色名}`（语气）台词”的格式，每段不超过约 120 秒。
+
 ## 任务队列
 
 所有生成任务存在 SQLite 里，排成一条队按顺序执行，一次只跑一个，内存占用可预测。

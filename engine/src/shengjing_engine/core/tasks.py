@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..audio.ffmpeg import FFmpegError
 from ..orchestration.llm import LLMError
+from ..providers.base import ProviderError
 from .db import Database, new_id
 from .events import EventHub
 from .extensions import ExtensionError
@@ -48,6 +49,7 @@ _READABLE_ERRORS = (
     LLMError,
     FFmpegError,
     ExtensionError,
+    ProviderError,
 )
 
 

@@ -15,7 +15,7 @@ from ..audio.subtitles import Cue, clock, to_srt
 from ..core.tasks import TaskContext
 from ..orchestration.llm import chat_json
 from ..orchestration.prompts import MeetingSummary, meeting_messages
-from .common import llm_session, require_file, transcribe_spans
+from .common import asr_language, llm_session, require_file, transcribe_spans
 
 
 async def _diarize(ctx: TaskContext, wav16k, params: dict[str, Any]) -> list[Span] | None:
@@ -47,6 +47,14 @@ async def _transcribe(ctx: TaskContext, params: dict[str, Any]) -> dict[str, Any
     src = require_file(params.get("audio_path"), "音频文件")
     ctx.progress(0.01, "转换音频格式")
     wav16k = services.ffmpeg.to_wav(src, ctx.out_dir / "input16k.wav")
+    asr_spec = services.model_for("asr", params.get("model"))
+    if (
+        asr_spec.worker == "cloud"
+        and "diarization" in asr_spec.capabilities
+        and params.get("diarize") is not False
+    ):
+        segments = await _cloud_transcribe_with_speakers(ctx, asr_spec, src, params)
+        return _write_transcript(ctx, segments, diarized=True)
     turns = await _diarize(ctx, wav16k, params)
     segments = await transcribe_spans(
         ctx,
@@ -56,6 +64,33 @@ async def _transcribe(ctx: TaskContext, params: dict[str, Any]) -> dict[str, Any
         language=params.get("language"),
         progress_range=(0.15, 0.75),
     )
+    return _write_transcript(ctx, segments, diarized=turns is not None)
+
+
+async def _cloud_transcribe_with_speakers(ctx: TaskContext, spec, src, params) -> list[dict]:
+    """在线服务一次完成转写和说话人区分（SenseAudio、ElevenLabs）。"""
+    services = ctx.services
+    services.require_worker(spec)
+    ctx.progress(0.1, f"上传到 {spec.name} 转写")
+    # 转成 16 kHz 单声道 mp3，体积小，上传快
+    upload = services.ffmpeg.to_mp3(src, ctx.out_dir / "upload.mp3")
+    async with services.scheduler.use(spec.id) as handle:
+        result = await handle.run(
+            "asr.transcribe",
+            {
+                "audio_path": str(upload),
+                "language": asr_language(spec, params.get("language")),
+                "diarize": True,
+                "num_speakers": params.get("num_speakers"),
+            },
+        )
+    segments = result.get("segments") or []
+    if not segments and result.get("text"):
+        segments = [{"start": 0.0, "end": 0.0, "text": result["text"], "speaker": None}]
+    return segments
+
+
+def _write_transcript(ctx: TaskContext, segments: list[dict], *, diarized: bool) -> dict:
     lines = []
     for seg in segments:
         who = f"{seg['speaker']}：" if seg.get("speaker") else ""
@@ -64,12 +99,12 @@ async def _transcribe(ctx: TaskContext, params: dict[str, Any]) -> dict[str, Any
     (ctx.out_dir / "transcript.txt").write_text(transcript, encoding="utf-8")
     cues = [Cue(s["start"], s["end"], s["text"], s.get("speaker")) for s in segments]
     (ctx.out_dir / "transcript.srt").write_text(
-        to_srt(cues, with_speaker=turns is not None), encoding="utf-8"
+        to_srt(cues, with_speaker=diarized), encoding="utf-8"
     )
     return {
         "segments": segments,
         "transcript": transcript,
-        "diarized": turns is not None,
+        "diarized": diarized,
         "files": {
             "txt": str(ctx.out_dir / "transcript.txt"),
             "srt": str(ctx.out_dir / "transcript.srt"),

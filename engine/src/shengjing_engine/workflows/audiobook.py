@@ -164,6 +164,25 @@ async def _render_cues(
                 files[cue.id] = out
     if bgm:
         spec = services.model_for("music")
+        if spec.worker == "cloud":
+            if not services.provider_ready(spec.source):
+                warnings.append(f"没有填写 {spec.name} 的 API Key，已跳过配乐")
+                return files, warnings
+            async with services.scheduler.use(spec.id) as handle:
+                for cue in bgm:
+                    ctx.check_cancelled()
+                    length = cue.duration or _cue_span(cue, script, spans)[1]
+                    out_dir = cue_dir / cue.id
+                    try:
+                        result = await handle.run("music.generate", {
+                            "prompt": cue.description, "style": cue.description,
+                            "instrumental": True, "duration": max(10, length + 2),
+                            "output_dir": str(out_dir),
+                        })
+                        files[cue.id] = Path(result["files"][0])
+                    except Exception as exc:  # noqa: BLE001 - 配乐失败不影响成品
+                        warnings.append(f"配乐生成失败，已跳过：{exc}")
+            return files, warnings
         if not services.workers.available(spec.worker):
             warnings.append("没有安装音乐扩展包，已跳过配乐")
             return files, warnings

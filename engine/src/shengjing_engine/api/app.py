@@ -28,6 +28,7 @@ from ..core.extensions import installed as installed_extensions
 from ..core.settings import SECRET_NAMES
 from ..core.workers import WorkerError
 from ..orchestration.script import Script
+from ..providers import PROVIDERS
 from ..services import EngineServices
 
 log = logging.getLogger(__name__)
@@ -74,6 +75,13 @@ class ProjectPatch(BaseModel):
 
 class SecretIn(BaseModel):
     value: str | None = None
+
+
+class ProviderIn(BaseModel):
+    base_url: str | None = None
+    options: dict[str, str] | None = None
+    api_key: str | None = None
+    """None 表示不修改；空字符串表示删除。"""
 
 
 def create_app(services: EngineServices, *, run_background: bool = True) -> FastAPI:
@@ -140,6 +148,32 @@ def create_app(services: EngineServices, *, run_background: bool = True) -> Fast
         except WorkerError as exc:
             raise HTTPException(409, str(exc)) from exc
         return services.scheduler.status()
+
+    # ---------- 在线服务商 ----------
+
+    @app.get("/providers", dependencies=auth)
+    def list_providers() -> list[dict[str, Any]]:
+        return services.provider_list()
+
+    @app.put("/providers/{provider_id}", dependencies=auth)
+    def update_provider(provider_id: str, body: ProviderIn) -> list[dict[str, Any]]:
+        if provider_id not in PROVIDERS:
+            raise HTTPException(404, "没有这个服务商")
+        current = services.settings.get().providers.get(provider_id)
+        patch: dict[str, Any] = {
+            "base_url": body.base_url if body.base_url is not None
+            else (current.base_url if current else ""),
+            "options": {k: v for k, v in (body.options or {}).items() if v.strip()}
+            if body.options is not None else (dict(current.options) if current else {}),
+        }
+        if not PROVIDERS[provider_id].base_url_editable:
+            patch["base_url"] = ""
+        providers = {k: v.model_dump() for k, v in services.settings.get().providers.items()}
+        providers[provider_id] = patch
+        services.settings.update({"providers": providers})
+        if body.api_key is not None:
+            services.secrets.set(f"{provider_id}_api_key", body.api_key or None)
+        return services.provider_list()
 
     @app.get("/extensions", dependencies=auth)
     def list_extensions() -> dict[str, Any]:

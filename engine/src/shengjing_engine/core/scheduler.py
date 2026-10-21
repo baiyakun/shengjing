@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -59,6 +59,8 @@ class ModelScheduler:
         self._lock = asyncio.Lock()
         self._last_active: dict[str, float] = {}
         self._source_overrides = source_overrides or {}
+        self.cloud_factory: Callable[[catalog.ModelSpec], Any] | None = None
+        """由 services 注入：根据模型目录里的在线条目创建 CloudHandle。"""
         manager.on_exit = self._on_worker_exit
 
     def _on_worker_exit(self, name: str) -> None:
@@ -70,6 +72,12 @@ class ModelScheduler:
     @contextlib.asynccontextmanager
     async def use(self, model_id: str) -> AsyncIterator[ModelHandle]:
         spec = catalog.get(model_id)
+        if spec.worker == "cloud":
+            # 在线 API 不占本机内存，也不需要启动进程
+            if self.cloud_factory is None:
+                raise WorkerError("在线 API 没有配置")
+            yield self.cloud_factory(spec)
+            return
         async with self._lock:
             actions = self.planner.plan(spec.worker, model_id, spec.memory_gb)
             for action in actions:

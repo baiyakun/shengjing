@@ -9,7 +9,7 @@ from typing import Any
 from .audio.ffmpeg import FFmpeg
 from .config import DataPaths, RuntimePaths
 from .core import catalog
-from .core.db import Database, ProjectStore, VoiceStore
+from .core.db import CloudVoiceStore, Database, ProjectStore, VoiceStore
 from .core.events import EventHub
 from .core.memory import MemoryBudget, chip_name, memory_tier
 from .core.scheduler import ModelScheduler
@@ -17,6 +17,7 @@ from .core.settings import SecretStore, SettingsStore
 from .core.tasks import TaskQueue, UserFacingError
 from .core.workers import WorkerManager, WorkerSpec
 from .orchestration.llm import ChatClient, OpenAICompatClient
+from .providers import PROVIDERS, CloudHandle, ProviderContext
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ class EngineServices:
     scheduler: ModelScheduler
     budget: MemoryBudget
     ffmpeg: FFmpeg
+    cloud_voices: CloudVoiceStore
 
     # ---------- 模型选择 ----------
 
@@ -112,9 +114,49 @@ class EngineServices:
             raise UserFacingError(str(exc)) from exc
 
     def require_worker(self, spec: catalog.ModelSpec) -> None:
+        if spec.worker == "cloud":
+            if not self.provider_ready(spec.source):
+                name = PROVIDERS[spec.source].name
+                raise UserFacingError(f"请先在设置里填写 {name} 的 API Key")
+            return
         if not self.workers.available(spec.worker):
             reason = self.workers.specs[spec.worker].unavailable_reason
             raise UserFacingError(reason or f"{spec.worker} 进程不可用")
+
+    # ---------- 在线 API ----------
+
+    def provider_ready(self, provider_id: str) -> bool:
+        return self.secrets.has(f"{provider_id}_api_key")
+
+    def provider_context(self, provider_id: str, **overrides: Any) -> ProviderContext:
+        conf = self.settings.get().providers.get(provider_id)
+        return ProviderContext(
+            api_key=self.secrets.get(f"{provider_id}_api_key"),
+            base_url=conf.base_url if conf else "",
+            options=dict(conf.options) if conf else {},
+            ffmpeg=self.ffmpeg,
+            voices=self.cloud_voices,
+            tmp_dir=self.paths.tmp / "cloud",
+            **overrides,
+        )
+
+    def make_cloud_handle(self, spec: catalog.ModelSpec) -> CloudHandle:
+        cls = PROVIDERS[spec.source]
+        return CloudHandle(spec, cls(self.provider_context(spec.source)))
+
+    def provider_list(self) -> list[dict[str, Any]]:
+        settings = self.settings.get()
+        out = []
+        for pid, cls in PROVIDERS.items():
+            conf = settings.providers.get(pid)
+            info = cls.describe()
+            info["ready"] = self.provider_ready(pid)
+            info["base_url"] = conf.base_url if conf else ""
+            info["values"] = dict(conf.options) if conf else {}
+            info["models"] = [m.id for m in catalog.all_models() if m.source == pid
+                              and m.worker == "cloud"]
+            out.append(info)
+        return out
 
     # ---------- LLM ----------
 
@@ -159,7 +201,10 @@ class EngineServices:
             item = m.to_dict()
             item["allowed"] = m.allowed_in(settings.edition)
             item["default"] = defaults.get(m.kind) == m.id
-            item["worker_installed"] = self.workers.available(m.worker)
+            item["worker_installed"] = (
+                self.provider_ready(m.source) if m.worker == "cloud"
+                else self.workers.available(m.worker)
+            )
             out.append(item)
         return out
 
@@ -214,7 +259,9 @@ def create_services(paths: DataPaths, runtime: RuntimePaths, token: str) -> Engi
         scheduler=scheduler,
         budget=budget,
         ffmpeg=FFmpeg(runtime.ffmpeg),
+        cloud_voices=CloudVoiceStore(db),
     )
+    scheduler.cloud_factory = services.make_cloud_handle
     tasks.bind(services)
     from .workflows import register_all
 
